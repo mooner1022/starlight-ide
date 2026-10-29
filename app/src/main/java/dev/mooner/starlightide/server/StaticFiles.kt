@@ -9,10 +9,12 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.header
 import io.ktor.server.response.respondBytes
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.GZIPInputStream
 
 /**
  * The web page, packaged as Java resources under [root] (see the web build in app/build.gradle) and kept in memory
- * once read. A pre-compressed `.gz` copy is sent to browsers that accept gzip.
+ * once read. Large files are packaged only as `.gz`, which is sent as is to browsers that accept gzip and decompressed
+ * for the others.
  */
 class StaticFiles(
     private val classLoader: ClassLoader,
@@ -30,15 +32,17 @@ class StaticFiles(
             return false
         val name = segments.joinToString("/").ifEmpty { INDEX }
         val file = when {
-            read(name) != null -> name
+            exists(name) -> name
             // Routes of the page itself, such as /projects/bot, get the page.
             !segments.last().contains('.') -> INDEX
             else -> return false
         }
-        val bytes = read(file) ?: return false
-
         val gzip = read("$file.gz")
         val acceptsGzip = call.request.headers[HttpHeaders.AcceptEncoding]?.contains("gzip") == true
+        val bytes = read(file)
+            ?: if (gzip != null && !acceptsGzip) GZIPInputStream(gzip.inputStream()).use { it.readBytes() } else null
+        if (bytes == null && gzip == null)
+            return false
         call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
         // Built files carry a content hash in their name; the page itself must be fetched again to find new ones.
         call.response.header(HttpHeaders.CacheControl, if (file == INDEX) "no-cache" else "public, max-age=$ONE_YEAR_SECONDS, immutable")
@@ -49,10 +53,13 @@ class StaticFiles(
             call.response.header(HttpHeaders.ContentEncoding, "gzip")
             call.respondBytes(gzip, contentType, HttpStatusCode.OK)
         } else {
-            call.respondBytes(bytes, contentType, HttpStatusCode.OK)
+            call.respondBytes(bytes!!, contentType, HttpStatusCode.OK)
         }
         return true
     }
+
+    private fun exists(name: String): Boolean =
+        read(name) != null || read("$name.gz") != null
 
     private fun read(name: String): ByteArray? =
         cache.getOrPut(name) { Resource(classLoader.getResourceAsStream(root + name)?.use { it.readBytes() }) }.bytes

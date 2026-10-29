@@ -181,6 +181,9 @@ class IdeServerTest {
         val text = GZIPInputStream(gzipped.inputStream).bufferedReader().readText()
         assertTrue(text.startsWith("console.log(\"app\");"))
 
+        // Packaged only compressed: decompressed for browsers without gzip.
+        assertEquals("export const lazy = 1;", get("/assets/lazy-def456.js").body)
+
         assertEquals(404, get("/assets/missing.js").status)
         assertEquals(404, get("/../secret.txt").status)
     }

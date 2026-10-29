@@ -13,8 +13,8 @@ Everything is JSON (UTF-8) unless noted. Paths of files are relative to the proj
 - Every other `/api/*` request without a valid session gets `401`.
 - Requests other than `GET` must send `X-Requested-With: starlight-ide`, or get `403`.
   Requests with an `Origin` other than this server's get `403`.
-- Errors: `{ "status": 404, "error": "message" }`. `400` for bad input (the message says what to fix), `404` for a
-  missing project or file, `409` for a conflict (see writes), `500` otherwise.
+- Errors: `{ "status": 404, "error": "message" }`. `400` for bad input, including a missing file (the message says
+  what to fix), `404` for a missing project or API, `409` for a conflict (see writes), `500` otherwise.
 
 ## Workspace
 
@@ -56,7 +56,7 @@ file is overwritten.
 Server-sent events (`text/event-stream`). The page reconnects with `EventSource`, which sends the cookie.
 
 - `event: change` — something changed, by any tool (the IDE, MCP) or by StarLight:
-  `{ type, projectId, actor, path?, from?, to?, hash?, success?, enabled? }` where `type` is one of `fileWritten`,
+  `{ type, projectId, actor, path?, from?, to?, hash?, success?, enabled?, message?, replies? }` where `type` is one of `fileWritten`,
   `fileDeleted`, `fileRenamed`, `compiled`, `enabledChanged`, `eventsChanged`, `projectCreated`, `projectDeleted`,
   `debugMessageSent`. `actor` is `"ide"` for the IDE's own changes.
 - `event: log` — a new log of the project given by `?project=`: `Log`.

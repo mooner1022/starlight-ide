@@ -80,7 +80,11 @@ internal object JsonMapping {
             is WorkspaceChange.EventsChanged    -> type("eventsChanged")
             is WorkspaceChange.ProjectCreated   -> type("projectCreated")
             is WorkspaceChange.ProjectDeleted   -> type("projectDeleted")
-            is WorkspaceChange.DebugMessageSent -> type("debugMessageSent")
+            is WorkspaceChange.DebugMessageSent -> {
+                type("debugMessageSent")
+                put("message", change.message)
+                putJsonArray("replies") { change.replies.forEach { add(it) } }
+            }
         }
     }
 
