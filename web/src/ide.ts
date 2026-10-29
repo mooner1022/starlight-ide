@@ -271,14 +271,14 @@ export class Ide {
     async setEnabled(enabled: boolean): Promise<void> {
         const project = this.project;
         if (!project) return;
-        // StarLight turns a project on or off only once it is compiled; say so instead of a switch that snaps back.
+        // A project that isn't compiled is always off in StarLight; say so instead of a switch that snaps back.
         if (!project.compiled) {
             this.renderHeader();
-            const action = enabled ? "켜기" : "끄기";
-            toast(`${project.name}은(는) 아직 컴파일되지 않아서 ${enabled ? "켤" : "끌"} 수 없어요. 먼저 컴파일하세요.`, "warning", 8000, {
-                label: `컴파일하고 ${action}`,
-                run: () => void this.compileAndSetEnabled(enabled),
-            });
+            if (enabled)
+                toast(`${project.name}은(는) 컴파일되지 않아서 꺼져 있어요. 컴파일해야 켤 수 있어요.`, "warning", 8000, {
+                    label: "컴파일하고 켜기",
+                    run: () => void this.compileAndSetEnabled(true),
+                });
             return;
         }
         try {
@@ -288,7 +288,7 @@ export class Ide {
         } catch (e) {
             this.renderHeader();
             toast(e instanceof ApiError && /not compiled/.test(e.message)
-                ? `${project.name}은(는) 컴파일되지 않아서 ${enabled ? "켤" : "끌"} 수 없어요. 먼저 컴파일하세요.`
+                ? `${project.name}은(는) 컴파일되지 않아서 켤 수 없어요. 먼저 컴파일하세요.`
                 : `${enabled ? "켜지" : "끄지"} 못했어요: ${errorMessage(e)}`, "error", 6000);
         }
     }
@@ -323,7 +323,8 @@ export class Ide {
         const project = this.project;
         this.status.project.textContent = project ? project.name : "";
         if (!project) return;
-        const toggle = h("input", { type: "checkbox", class: "switch", checked: project.enabled, "aria-label": "프로젝트 켜기" });
+        const isOn = project.enabled && project.compiled;
+        const toggle = h("input", { type: "checkbox", class: "switch", checked: isOn, "aria-label": "프로젝트 켜기" });
         toggle.addEventListener("change", () => void this.setEnabled(toggle.checked));
         // The switch beside it already says on/off, so the chip tells whether it is compiled.
         const stateChip = project.compiled
@@ -338,8 +339,8 @@ export class Ide {
                 stateChip),
             h("label", {
                 class: "switch-label" + (project.compiled ? "" : " needs-compile"),
-                title: project.compiled ? "프로젝트 켜기/끄기" : "컴파일한 뒤에 켜거나 끌 수 있어요",
-            }, toggle, h("span", {}, project.enabled ? "켜짐" : "꺼짐")));
+                title: project.compiled ? "프로젝트 켜기/끄기" : "컴파일되지 않은 프로젝트는 꺼져 있어요. 컴파일하면 켤 수 있어요.",
+            }, toggle, h("span", {}, isOn ? "켜짐" : "꺼짐")));
     }
 
     // ------------------------------------------------------------------ files
@@ -754,10 +755,13 @@ export class Ide {
         this.bottom.show("output");
         this.bottom.compileStarted(project.name);
         this.setCompiling(true);
+        const wasOn = project.enabled && project.compiled;
         try {
             const result = await api.compile(project.id);
             this.showCompileResult(result);
             await this.refreshProjects();
+            if (!result.success && wasOn)
+                toast(`컴파일에 실패해서 ${project.name}이(가) 꺼졌어요. 오류를 고치고 다시 컴파일한 뒤 켜세요.`, "warning", 8000);
             return result;
         } catch (e) {
             this.bottom.compileFailed(errorMessage(e));
@@ -983,12 +987,15 @@ function avatar(name: string): HTMLElement {
     return h("span", { class: "avatar", style: `--hue: ${hash % 360}`, "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
 }
 
+/** Not compiled means off in StarLight, but worth pointing out: it can't be turned on until compiled. */
 function stateClass(project: Project): string {
-    return project.enabled ? (project.compiled ? "on" : "pending") : "off";
+    if (!project.compiled) return "pending";
+    return project.enabled ? "on" : "off";
 }
 
 function stateLabel(project: Project): string {
-    return project.enabled ? (project.compiled ? "실행 중" : "컴파일 필요") : "꺼짐";
+    if (!project.compiled) return "컴파일 필요";
+    return project.enabled ? "실행 중" : "꺼짐";
 }
 
 function fileIcon(path: string): SVGSVGElement {

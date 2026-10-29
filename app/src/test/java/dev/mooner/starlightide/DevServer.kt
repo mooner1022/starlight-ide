@@ -78,7 +78,7 @@ class DevServer {
             }
         }
         repeat(6) { bot.log("message handled in ${12 + it * 3}ms", if (it == 4) "WARN" else "INFO") }
-        // Compiled but off; notice-board below is on but not compiled, so StarLight refuses to toggle it.
+        // Compiled but off; notice-board below isn't compiled, which in StarLight means off.
         host.addProject("weather").also { it.compile(); it.setEnabled(false) }
         host.addProject("notice-board")
 
