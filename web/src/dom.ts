@@ -60,6 +60,7 @@ const ICONS: Record<string, string> = {
     error: "M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zM5.5 5.5l5 5M10.5 5.5l-5 5",
     check: "M3 8.5l3 3 7-7",
     clear: "M3 13h10M5 9.5l5.5-5.5 2.5 2.5-5.5 5.5H5z",
+    sort: "M5 3v10M2.5 10.5L5 13l2.5-2.5M11 13V3M8.5 5.5L11 3l2.5 2.5",
     panelLeft: "M2.5 3h11v10h-11zM6.5 3v10",
     panelRight: "M2.5 3h11v10h-11zM9.5 3v10",
 };

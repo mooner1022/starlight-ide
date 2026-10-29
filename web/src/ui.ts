@@ -154,3 +154,28 @@ function score(text: string, query: string): number {
     }
     return total - text.length * 0.01;
 }
+
+/** A small menu under [anchor]; [onPick] gets the chosen value. Closes on choice, outside click or Escape. */
+export function menu(anchor: HTMLElement, items: { value: string; label: string }[], selected: string, onPick: (value: string) => void): void {
+    document.querySelector(".menu")?.remove();
+    const close = () => {
+        element.remove();
+        document.removeEventListener("mousedown", outside, true);
+        document.removeEventListener("keydown", escape, true);
+    };
+    const outside = (e: MouseEvent) => { if (!element.contains(e.target as Node) && e.target !== anchor) close(); };
+    const escape = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); anchor.focus(); } };
+    const element = h("div", { class: "menu", role: "menu" },
+        ...items.map((item) => h("button", {
+            type: "button", class: "menu-item" + (item.value === selected ? " selected" : ""), role: "menuitemradio",
+            "aria-checked": item.value === selected,
+            onClick: () => { close(); onPick(item.value); },
+        }, item.value === selected ? icon("check", 14) : h("span", { class: "menu-check" }), item.label)));
+    const rect = anchor.getBoundingClientRect();
+    element.style.top = `${rect.bottom + 6}px`;
+    element.style.left = `${Math.max(8, rect.right - 180)}px`;
+    document.body.appendChild(element);
+    document.addEventListener("mousedown", outside, true);
+    document.addEventListener("keydown", escape, true);
+    (element.querySelector(".selected") as HTMLElement | null ?? element.querySelector("button"))?.focus();
+}

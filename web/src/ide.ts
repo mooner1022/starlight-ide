@@ -5,7 +5,7 @@ import { button, clear, h, icon, iconButton, logo, sparkle } from "./dom";
 import { editorFont, monaco, setMonacoTheme, setStarlightTypes } from "./monaco";
 import { BottomPanel, SidePanel } from "./panels";
 import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
-import { confirmDialog, dialog, pick, toast } from "./ui";
+import { confirmDialog, dialog, menu, pick, toast } from "./ui";
 
 /** A file with a model in the editor. */
 interface Doc {
@@ -20,6 +20,14 @@ interface Doc {
 }
 
 const ACTOR_NAMES: Record<string, string> = { mcp: "AI(MCP)", ide: "IDE", starlight: "StarLight" };
+
+type ProjectSort = "name" | "state" | "recent" | "language";
+const PROJECT_SORTS: { value: ProjectSort; label: string }[] = [
+    { value: "name", label: "이름순" },
+    { value: "state", label: "상태순" },
+    { value: "recent", label: "최근 연 순" },
+    { value: "language", label: "언어순" },
+];
 const PRELOADED = /\.(m?js|ts|json)$/;
 const MAX_PRELOADED_FILES = 60;
 const MAX_PRELOADED_BYTES = 256 * 1024;
@@ -47,6 +55,12 @@ export class Ide {
     private readonly side: SidePanel;
 
     private readonly projectList = h("ul", { class: "project-list", role: "listbox", "aria-label": "프로젝트" });
+    private readonly projectCount = h("span", { class: "count-chip" });
+    private readonly projectSearch = h("input", { class: "project-search-input", type: "search", placeholder: "이름, 언어로 검색", spellcheck: false, "aria-label": "프로젝트 검색" });
+    private readonly sortButton = h("button", { type: "button", class: "sort-button", title: "정렬 기준" });
+    private projectSort: ProjectSort = (localStorage.getItem("ide.projectSort") as ProjectSort | null) ?? "name";
+    /** When each project was last opened here, for sorting by it. */
+    private readonly openedAt: Record<string, number> = readJson("ide.projectOpenedAt") ?? {};
     private readonly fileTree = h("ul", { class: "file-tree", role: "tree", "aria-label": "파일" });
     private readonly tabBar = h("div", { class: "tab-bar", role: "tablist" });
     private readonly editorHost = h("div", { class: "editor-host" });
@@ -126,9 +140,11 @@ export class Ide {
     private build(): void {
         const sidebar = h("aside", { class: "sidebar card" },
             h("section", { class: "sidebar-section projects-section" },
-                h("header", { class: "section-header" }, sparkle(11), h("span", {}, "프로젝트"),
+                h("header", { class: "section-header" }, sparkle(11), h("span", { class: "section-title" }, "프로젝트", this.projectCount),
+                    this.sortButton,
                     iconButton("plus", "새 프로젝트", () => void this.createProject()),
                     iconButton("refresh", "새로고침", () => void this.refreshProjects())),
+                h("label", { class: "project-search" }, icon("search", 14), this.projectSearch),
                 this.projectList),
             h("section", { class: "sidebar-section files-section" },
                 h("header", { class: "section-header" }, sparkle(11), h("span", {}, "파일"),
@@ -166,6 +182,17 @@ export class Ide {
             this.status.saved, this.status.cursor, this.status.language);
         this.status.problems.addEventListener("click", () => this.bottom.show("problems"));
 
+        this.projectSearch.addEventListener("input", () => this.renderProjects());
+        this.projectSearch.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") { this.projectSearch.value = ""; this.renderProjects(); }
+            // Enter opens the first match.
+            if (e.key === "Enter") (this.projectList.querySelector(".project-item") as HTMLElement | null)?.click();
+        });
+        this.sortButton.addEventListener("click", () => menu(this.sortButton, PROJECT_SORTS, this.projectSort, (value) => {
+            this.projectSort = value as ProjectSort;
+            localStorage.setItem("ide.projectSort", value);
+            this.renderProjects();
+        }));
         this.root.append(header, sidebar, splitter("sidebar"), center, splitter("side"), this.side.root, statusBar);
         restoreSizes(this.root);
         for (const side of ["left", "right"] as const)
@@ -238,6 +265,8 @@ export class Ide {
         this.closeAll();
         this.project = await api.project(id);
         localStorage.setItem("ide.project", id);
+        this.openedAt[id] = Date.now();
+        localStorage.setItem("ide.projectOpenedAt", JSON.stringify(this.openedAt));
         this.renderProjects();
         this.renderHeader();
         this.connect();
@@ -301,7 +330,13 @@ export class Ide {
 
     private renderProjects(): void {
         clear(this.projectList);
-        for (const project of this.projects) {
+        const query = this.projectSearch.value.trim().toLowerCase();
+        const shown = this.projects
+            .filter((p) => !query || p.name.toLowerCase().includes(query) || shortLanguage(p.languageId).toLowerCase().includes(query) || p.languageId.toLowerCase().includes(query))
+            .sort(this.compareProjects());
+        this.projectCount.textContent = query ? `${shown.length}/${this.projects.length}` : String(this.projects.length);
+        this.sortButton.replaceChildren(h("span", {}, PROJECT_SORTS.find((s) => s.value === this.projectSort)!.label), icon("sort", 13));
+        for (const project of shown) {
             const selected = project.id === this.project?.id;
             this.projectList.appendChild(h("li", {
                 class: "project-item" + (selected ? " selected" : ""), role: "option", "aria-selected": selected, tabIndex: 0,
@@ -316,6 +351,24 @@ export class Ide {
                 h("span", { class: "project-dot " + stateClass(project), title: stateLabel(project) })));
         }
         if (this.projects.length === 0) this.projectList.appendChild(h("li", { class: "muted-row" }, "프로젝트가 없어요"));
+        else if (shown.length === 0) this.projectList.appendChild(h("li", { class: "muted-row" }, `'${this.projectSearch.value.trim()}'와(과) 맞는 프로젝트가 없어요`));
+    }
+
+    private compareProjects(): (a: Project, b: Project) => number {
+        const byName = (a: Project, b: Project) => a.name.localeCompare(b.name, "ko");
+        switch (this.projectSort) {
+            case "state": {
+                // Running first, then the ones that need compiling, then the ones that are off.
+                const rank = (p: Project) => (!p.compiled ? 1 : p.enabled ? 0 : 2);
+                return (a, b) => rank(a) - rank(b) || byName(a, b);
+            }
+            case "recent":
+                return (a, b) => (this.openedAt[b.id] ?? 0) - (this.openedAt[a.id] ?? 0) || byName(a, b);
+            case "language":
+                return (a, b) => shortLanguage(a.languageId).localeCompare(shortLanguage(b.languageId)) || byName(a, b);
+            default:
+                return byName;
+        }
     }
 
     private renderHeader(): void {
@@ -980,11 +1033,17 @@ function languageLabel(path: string): string {
     return { javascript: "JavaScript", typescript: "TypeScript", json: "JSON", markdown: "Markdown", plaintext: "텍스트" }[languageOf(path)] ?? "";
 }
 
-/** A colored square with the project's initial; the hue comes from the name, so it stays the same. */
+function readJson<T>(key: string): T | null {
+    try {
+        return JSON.parse(localStorage.getItem(key) ?? "null") as T | null;
+    } catch {
+        return null;
+    }
+}
+
+/** A square with the project's initial. */
 function avatar(name: string): HTMLElement {
-    let hash = 0;
-    for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-    return h("span", { class: "avatar", style: `--hue: ${hash % 360}`, "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
+    return h("span", { class: "avatar", "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
 }
 
 /** Not compiled means off in StarLight, but worth pointing out: it can't be turned on until compiled. */
