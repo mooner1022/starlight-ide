@@ -727,18 +727,21 @@ kbd {
     background: var(--surface2);
 }
 
-.chat-options { padding: 0 14px; border-top: 1px solid var(--border); }
+.chat-options { padding: 0 14px; border-top: 1px solid var(--border); margin-bottom: 4px; }
 .chat-options summary { cursor: pointer; padding: 9px 0; color: var(--muted); font-size: 12px; font-weight: 600; list-style: none; }
 .chat-options summary::before { content: "▸"; display: inline-block; margin-right: 6px; transition: transform var(--t); }
 .chat-options[open] summary::before { transform: rotate(90deg); }
 .chat-options[open] { padding-bottom: 10px; }
+/* Concentric with the card around it: each inner radius is the outer one minus the gap between them. */
 .chat-compose {
+    --compose-gap: 8px;
+    --compose-padding: 5px;
     display: flex;
     gap: 6px;
-    margin: 0 10px 10px;
-    padding: 5px 5px 5px 14px;
+    margin: 0 var(--compose-gap) var(--compose-gap);
+    padding: var(--compose-padding) var(--compose-padding) var(--compose-padding) 12px;
     align-items: flex-end;
-    border-radius: 22px;
+    border-radius: calc(var(--radius-l) - var(--compose-gap));
     background: var(--surface2);
     border: 1px solid var(--border-strong);
     transition: border-color var(--t), box-shadow var(--t);
@@ -753,13 +756,16 @@ kbd {
     height: 34px;
     padding: 0;
     border: none;
-    border-radius: 50%;
+    border-radius: calc(var(--radius-l) - var(--compose-gap) - var(--compose-padding));
     color: var(--accent-text);
     background: var(--accent);
 }
 .send-button:hover { background: color-mix(in srgb, var(--accent) 88%, white); }
 
-.events-body { flex: 1; overflow: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.events-body { flex: 1; overflow: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 14px; }
+.event-group { display: flex; flex-direction: column; gap: 8px; }
+.event-group-header { display: flex; align-items: center; gap: 7px; padding: 2px 4px 0; font-weight: 800; font-size: 13px; }
+.event-group-header span:first-of-type { flex: 1; }
 .events-hint { color: var(--muted); font-size: 12px; margin: 10px 2px 2px; }
 .event-row {
     display: flex;
@@ -835,6 +841,36 @@ kbd {
 .check-row:hover { background: var(--surface2); }
 .check-row input { margin: 0; accent-color: var(--accent); width: 15px; height: 15px; }
 .check-row small { margin-left: auto; color: var(--faint); font-family: var(--font-code); }
+
+/* Settings */
+.settings-dialog { width: min(560px, calc(100vw - 32px)); padding: 20px 22px 18px; }
+.settings-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.settings-header h2 { margin: 0; font-size: 18px; font-weight: 800; }
+.settings-body { display: flex; flex-direction: column; gap: 6px; }
+.settings-section { padding: 12px 0 6px; border-top: 1px solid var(--border); }
+.settings-section:first-child { border-top: none; }
+.settings-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 13px; font-weight: 800; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 9px 2px; }
+.settings-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-label span { font-weight: 600; }
+.settings-label small { color: var(--faint); font-size: 11.5px; }
+.settings-row .segmented button { padding: 4px 13px; font-size: 12px; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.swatch {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 11px 4px 5px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    font-size: 12px;
+}
+.swatch-color { width: 18px; height: 18px; border-radius: 50%; background: var(--swatch); }
+.swatch.selected { border-color: var(--swatch); background: color-mix(in srgb, var(--swatch) 14%, transparent); font-weight: 650; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; padding: 2px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface2); }
+.stepper .icon-button { width: 26px; height: 26px; border-radius: 50%; }
+.stepper-value { min-width: 54px; text-align: center; font: 600 12px var(--font-code); }
 
 .menu {
     position: fixed;

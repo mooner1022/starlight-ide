@@ -1,10 +1,10 @@
 import "./styles.css";
 import { api, ApiError, setUnauthorizedHandler } from "./api";
 import { h, logo, sparkle } from "./dom";
-import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
+import { applyPageTheme, loadSettings } from "./settings";
 
 const app = document.getElementById("app")!;
-applyCssVariables((localStorage.getItem("ide.theme") as ThemeName | null) ?? preferredTheme());
+applyPageTheme(loadSettings());
 
 async function boot(): Promise<void> {
     const session = await api.session();

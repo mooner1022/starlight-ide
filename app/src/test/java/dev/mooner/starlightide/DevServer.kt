@@ -70,6 +70,7 @@ class DevServer {
         bot.directory.resolve("lib").mkdirs()
         bot.directory.resolve("lib/commands.js").writeText(SAMPLE_COMMANDS)
         bot.directory.resolve("README.md").writeText("# hello-bot\n\n간단한 명령어 봇이에요.\n")
+        bot.directory.resolve("assets").mkdirs()
         bot.compile()
         bot.onMessage = { message, send ->
             when {

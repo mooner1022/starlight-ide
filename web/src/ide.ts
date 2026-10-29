@@ -4,7 +4,8 @@ import { api, ApiError, type Change, type CompileResult, type EventInfo, type Fi
 import { button, clear, h, icon, iconButton, logo, sparkle } from "./dom";
 import { editorFont, isLibUri, monaco, setMonacoTheme, setStarlightTypes } from "./monaco";
 import { BottomPanel, SidePanel } from "./panels";
-import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
+import { applyPageTheme, loadSettings, openSettings, themeOf, type Settings } from "./settings";
+import { palette } from "./theme";
 import { confirmDialog, dialog, menu, pick, toast } from "./ui";
 
 /** A file with a model in the editor. */
@@ -52,7 +53,7 @@ export class Ide {
     /** Files being saved: their change events are this page's own saves, answered before the save returns. */
     private readonly saving = new Set<string>();
     private closeStream: (() => void) | null = null;
-    private theme: ThemeName;
+    settings: Settings = loadSettings();
 
     readonly editor: monaco.editor.IStandaloneCodeEditor;
     private readonly bottom: BottomPanel;
@@ -82,9 +83,6 @@ export class Ide {
     };
 
     constructor(private readonly onLogout: () => void) {
-        this.theme = (localStorage.getItem("ide.theme") as ThemeName | null) ?? preferredTheme();
-        applyCssVariables(this.theme);
-        setMonacoTheme(this.theme);
 
         this.bottom = new BottomPanel(this);
         this.side = new SidePanel(this);
@@ -92,8 +90,7 @@ export class Ide {
             model: null,
             automaticLayout: true,
             ...editorFont,
-            fontLigatures: true,
-            minimap: { enabled: true, renderCharacters: false, scale: 1 },
+            ...this.editorOptions(),
             smoothScrolling: true,
             cursorBlinking: "smooth",
             cursorSmoothCaretAnimation: "on",
@@ -128,6 +125,10 @@ export class Ide {
         });
         this.registerEventSnippets();
         this.registerOpener();
+        this.applySettings();
+        window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+            if (this.settings.themeMode === "system") this.applySettings();
+        });
     }
 
     /**
@@ -224,7 +225,7 @@ export class Ide {
                 iconButton("save", "저장 (Ctrl+S)", () => void this.save()),
                 this.compileButton,
                 h("span", { class: "divider" }),
-                iconButton(this.theme === "dark" ? "sun" : "moon", "테마 바꾸기", () => this.toggleTheme(), { class: "theme-button" }),
+                iconButton("gear", "설정 (Ctrl+,)", () => this.openSettings(), { class: "settings-button" }),
                 iconButton("logout", "로그아웃", () => this.onLogout())));
 
         const statusBar = h("footer", { class: "statusbar" },
@@ -276,6 +277,7 @@ export class Ide {
         this.editor.addCommand(mod | monaco.KeyCode.KeyP, () => void this.quickOpen());
         this.editor.addCommand(mod | monaco.KeyCode.KeyB, () => this.togglePanel("left"));
         this.editor.addCommand(mod | monaco.KeyCode.KeyJ, () => this.bottom.toggleCollapsed());
+        this.editor.addCommand(mod | monaco.KeyCode.Comma, () => this.openSettings());
         this.editor.addCommand(mod | monaco.KeyMod.Alt | monaco.KeyCode.KeyB, () => this.togglePanel("right"));
         // The same keys outside the editor.
         document.addEventListener("keydown", (e) => {
@@ -287,16 +289,36 @@ export class Ide {
             else if (key === "p" && !e.shiftKey) { e.preventDefault(); void this.quickOpen(); }
             else if (key === "b" && !e.shiftKey) { e.preventDefault(); this.togglePanel(e.altKey ? "right" : "left"); }
             else if (key === "j") { e.preventDefault(); this.bottom.toggleCollapsed(); }
+            else if (key === ",") { e.preventDefault(); this.openSettings(); }
         });
     }
 
-    private toggleTheme(): void {
-        this.theme = this.theme === "dark" ? "light" : "dark";
-        localStorage.setItem("ide.theme", this.theme);
-        applyCssVariables(this.theme);
-        setMonacoTheme(this.theme);
-        const themeButton = this.root.querySelector(".theme-button");
-        themeButton?.replaceChildren(icon(this.theme === "dark" ? "sun" : "moon"));
+    openSettings(): void {
+        openSettings(this.settings, (settings) => {
+            this.settings = settings;
+            this.applySettings();
+        });
+    }
+
+    /** Applies [settings] to the page, the editor theme, the editor and every open file. */
+    private applySettings(): void {
+        const theme = themeOf(this.settings);
+        applyPageTheme(this.settings);
+        setMonacoTheme(theme, palette(theme, this.settings.accent));
+        this.editor.updateOptions(this.editorOptions());
+        for (const doc of this.docs.values())
+            if (!doc.readOnly) doc.model.updateOptions({ tabSize: this.settings.tabSize, insertSpaces: true });
+    }
+
+    private editorOptions(): monaco.editor.IEditorOptions {
+        const { fontSize, wordWrap, minimap, ligatures } = this.settings;
+        return {
+            fontSize,
+            lineHeight: Math.round(fontSize * 1.56),
+            fontLigatures: ligatures,
+            wordWrap: wordWrap ? "on" : "off",
+            minimap: { enabled: minimap, renderCharacters: false, scale: 1 },
+        };
     }
 
     // ------------------------------------------------------------------ projects
@@ -486,16 +508,19 @@ export class Ide {
                 a.isDirectory === b.isDirectory ? a.path.localeCompare(b.path) : a.isDirectory ? -1 : 1);
             for (const entry of entries) {
                 const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
-                const isOpen = this.expanded.has(entry.path);
+                // An empty folder has nothing to show, so it neither expands nor gets an arrow.
+                const isEmpty = entry.isDirectory && !children.has(entry.path);
+                const isOpen = !isEmpty && this.expanded.has(entry.path);
                 const doc = this.docs.get(entry.path);
                 const row = h("li", {
                     class: "file-row" + (entry.path === this.active ? " active" : "") + (entry.isDirectory ? " directory" : ""),
-                    style: `--depth: ${depth}`, role: "treeitem", tabIndex: 0, title: entry.path,
-                    "aria-expanded": entry.isDirectory ? isOpen : undefined,
-                    onClick: () => entry.isDirectory ? this.toggleDir(entry.path) : void this.openFile(entry.path),
+                    style: `--depth: ${depth}`, role: "treeitem", tabIndex: 0,
+                    "aria-expanded": entry.isDirectory && !isEmpty ? isOpen : undefined,
+                    title: isEmpty ? `${entry.path} (빈 폴더)` : entry.path,
+                    onClick: () => entry.isDirectory ? (isEmpty ? undefined : this.toggleDir(entry.path)) : void this.openFile(entry.path),
                     onKeydown: (e: KeyboardEvent) => { if (e.key === "Enter") (e.currentTarget as HTMLElement).click(); },
                 },
-                    entry.isDirectory ? icon(isOpen ? "chevronDown" : "chevronRight", 14) : h("span", { class: "file-indent" }),
+                    entry.isDirectory && !isEmpty ? icon(isOpen ? "chevronDown" : "chevronRight", 14) : h("span", { class: "file-indent" }),
                     entry.isDirectory ? icon(isOpen ? "folderOpen" : "folder", 15) : fileIcon(entry.path),
                     h("span", { class: "file-name" + (entry.path === this.project?.mainScript ? " main-script" : "") }, name),
                     doc && this.isDirty(doc) ? h("span", { class: "dirty-dot", title: "저장 안 됨" }) : null,
@@ -549,6 +574,7 @@ export class Ide {
         const uri = monaco.Uri.from({ scheme: "file", path: `/${this.project!.id}/${path}` });
         monaco.editor.getModel(uri)?.dispose();
         const model = monaco.editor.createModel(text, languageOf(path), uri);
+        model.updateOptions({ tabSize: this.settings.tabSize, insertSpaces: true });
         const doc: Doc = { path, model, savedHash: hash, savedVersionId: model.getAlternativeVersionId(), changedElsewhere: false };
         model.onDidChangeContent(() => {
             this.renderTabs();

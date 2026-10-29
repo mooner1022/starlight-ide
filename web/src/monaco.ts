@@ -54,7 +54,7 @@ import "monaco-editor/esm/vs/language/typescript/monaco.contribution.js";
 import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
 
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker.js?worker";
-import { monacoTheme, palettes, type ThemeName } from "./theme";
+import { monacoTheme, type palette, type ThemeName } from "./theme";
 import neonGlobals from "../libs/neon-globals.d.ts?raw";
 
 self.MonacoEnvironment = {
@@ -83,8 +83,6 @@ window.addEventListener("unhandledrejection", (e) => {
     if (reason?.name === "Canceled" || reason?.message === "Canceled") e.preventDefault();
 });
 
-monaco.editor.defineTheme("starlight-dark", monacoTheme("dark") as monaco.editor.IStandaloneThemeData);
-monaco.editor.defineTheme("starlight-light", monacoTheme("light") as monaco.editor.IStandaloneThemeData);
 
 const ts = monaco.languages.typescript;
 const compilerOptions: monaco.languages.typescript.CompilerOptions = {
@@ -121,8 +119,10 @@ export function setStarlightTypes(declarations: string): void {
     starlightLib = { dispose: () => { lib.dispose(); tsLib.dispose(); } };
 }
 
-export function setMonacoTheme(name: ThemeName): void {
-    monaco.editor.setTheme(`starlight-${name}`);
+/** Builds the editor's theme from the page's palette, so both change together. */
+export function setMonacoTheme(name: ThemeName, colors: ReturnType<typeof palette>): void {
+    monaco.editor.defineTheme("starlight", monacoTheme(name, colors) as monaco.editor.IStandaloneThemeData);
+    monaco.editor.setTheme("starlight");
 }
 
 export const editorFont = {
@@ -131,4 +131,4 @@ export const editorFont = {
     lineHeight: 21,
 };
 
-export { monaco, palettes };
+export { monaco };

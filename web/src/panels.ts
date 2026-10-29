@@ -1,6 +1,6 @@
 // The panel below the editor (output, logs, search, problems) and the one on the right (debug room, events).
 
-import { api, type Change, type CompileResult, type Log } from "./api";
+import { api, type Change, type CompileResult, type EventInfo, type Log } from "./api";
 import { clear, formatTime, h, icon, iconButton, logo, sparkle } from "./dom";
 import type { Ide } from "./ide";
 import { errorMessage } from "./ide";
@@ -254,7 +254,7 @@ export class SidePanel {
     private tab: "debug" | "events" = "debug";
     private readonly tabs = h("div", { class: "panel-tabs", role: "tablist" });
     private readonly chat = h("div", { class: "chat-log", "aria-live": "polite" });
-    private readonly input = h("textarea", { class: "chat-input", rows: 2, placeholder: "봇에게 보낼 메시지 (Enter로 전송)" });
+    private readonly input = h("textarea", { class: "chat-input", rows: 2, placeholder: "봇에게 보낼 메시지" });
     private readonly sender = h("input", { placeholder: "디버그룸 설정", value: localStorage.getItem("ide.sender") ?? "" });
     private readonly room = h("input", { placeholder: "디버그룸 설정", value: localStorage.getItem("ide.room") ?? "" });
     private readonly group = h("input", { type: "checkbox", checked: localStorage.getItem("ide.group") === "true" });
@@ -267,7 +267,9 @@ export class SidePanel {
 
     constructor(private readonly ide: Ide) {
         this.input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+            // Enter or Ctrl+Enter sends, as set in the settings; the other one adds a line.
+            const sends = this.ide.settings.sendWith === "enter" ? !e.shiftKey && !e.ctrlKey && !e.metaKey : e.ctrlKey || e.metaKey;
+            if (e.key === "Enter" && sends && !e.isComposing) {
                 e.preventDefault();
                 void this.send();
             }
@@ -409,33 +411,74 @@ export class SidePanel {
 
     // ------------------------------------------------------------------ events
 
+    /**
+     * Events grouped by where they come from (StarLight or a plugin, the first part of the id), enabled ones first.
+     * Toggling doesn't reorder the list under the cursor; the order updates the next time the tab opens.
+     */
     private renderEvents(): void {
         clear(this.eventsBody);
         const project = this.ide.project;
         if (!project) return;
         const allowed = new Set(project.allowedEvents ?? []);
         this.eventsBody.append(h("p", { class: "events-hint" }, "프로젝트가 받을 이벤트를 고르세요. 함수 이름을 누르면 에디터에 함수를 넣어요."));
+
+        const groups = new Map<string, EventInfo[]>();
         for (const event of this.ide.events) {
-            const toggle = h("input", { type: "checkbox", class: "switch", checked: allowed.has(event.id), "aria-label": event.name });
-            toggle.addEventListener("change", async () => {
-                try {
-                    const result = await api.updateEvents(project.id, toggle.checked ? [event.id] : [], toggle.checked ? [] : [event.id]);
-                    project.allowedEvents = result.allowed;
-                    toggle.closest(".event-row")?.classList.toggle("allowed", toggle.checked);
-                } catch (e) {
-                    toggle.checked = !toggle.checked;
-                    toast(errorMessage(e), "error");
-                }
-            });
-            this.eventsBody.append(h("div", { class: "event-row" + (allowed.has(event.id) ? " allowed" : "") },
-                h("div", { class: "event-text" },
-                    h("div", { class: "event-name" }, event.name),
-                    h("button", { type: "button", class: "event-function", title: "에디터에 넣기", onClick: () => this.ide.insertEventFunction(event) },
-                        `${event.functionName}(${event.args.map((a) => a.name).join(", ")})`),
-                    h("div", { class: "event-id" }, event.id)),
-                toggle));
+            const source = event.id.split(".")[0];
+            if (!groups.has(source)) groups.set(source, []);
+            groups.get(source)!.push(event);
+        }
+        const allowedIn = (events: EventInfo[]) => events.filter((e) => allowed.has(e.id)).length;
+        const ordered = [...groups.entries()].sort(([a, ea], [b, eb]) =>
+            Number(b === "starlight") - Number(a === "starlight") || allowedIn(eb) - allowedIn(ea) || sourceName(a).localeCompare(sourceName(b)));
+
+        for (const [source, events] of ordered) {
+            events.sort((a, b) => Number(allowed.has(b.id)) - Number(allowed.has(a.id)) || a.name.localeCompare(b.name, "ko"));
+            const count = h("span", { class: "count-chip" });
+            const updateCount = () => { count.textContent = `${allowedIn(events)}/${events.length}`; };
+            updateCount();
+            const group = h("section", { class: "event-group" },
+                h("header", { class: "event-group-header" }, sparkle(10), h("span", {}, sourceName(source)), count));
+            for (const event of events) {
+                const toggle = h("input", { type: "checkbox", class: "switch", checked: allowed.has(event.id), "aria-label": event.name });
+                toggle.addEventListener("change", async () => {
+                    try {
+                        const result = await api.updateEvents(project.id, toggle.checked ? [event.id] : [], toggle.checked ? [] : [event.id]);
+                        project.allowedEvents = result.allowed;
+                        if (toggle.checked) allowed.add(event.id);
+                        else allowed.delete(event.id);
+                        toggle.closest(".event-row")?.classList.toggle("allowed", toggle.checked);
+                        updateCount();
+                    } catch (e) {
+                        toggle.checked = !toggle.checked;
+                        toast(errorMessage(e), "error");
+                    }
+                });
+                group.append(h("div", { class: "event-row" + (allowed.has(event.id) ? " allowed" : "") },
+                    h("div", { class: "event-text" },
+                        h("div", { class: "event-name" }, event.name),
+                        h("button", { type: "button", class: "event-function", title: "에디터에 넣기", onClick: () => this.ide.insertEventFunction(event) },
+                            `${event.functionName}(${event.args.map((a) => a.name).join(", ")})`),
+                        h("div", { class: "event-id" }, event.id)),
+                    toggle));
+            }
+            this.eventsBody.append(group);
         }
     }
+}
+
+/** Event ids start with the id of whoever registered them. */
+const SOURCE_NAMES: Record<string, string> = {
+    starlight: "StarLight",
+    webserver: "Web Server",
+    mcp: "MCP Server",
+    discord: "Discord",
+    ide: "Web IDE",
+    workspace: "Workspace",
+};
+
+function sourceName(source: string): string {
+    return SOURCE_NAMES[source] ?? source;
 }
 
 function logRow(log: Log): HTMLElement {

@@ -128,9 +128,32 @@ const light: Palette = {
 
 export const palettes: Record<ThemeName, Palette> = { dark, light };
 
+export type AccentName = "sand" | "rose" | "sage" | "moon";
+
+/** Accent colors to choose from, all in the app's muted, warm family. Sand is StarLight's own. */
+export const ACCENTS: Record<AccentName, { label: string; dark: [string, string]; light: [string, string] }> = {
+    sand: { label: "샌드", dark: ["#dcc19b", "#c7a77c"], light: ["#9c7442", "#86612f"] },
+    rose: { label: "로즈", dark: ["#e3a79c", "#cf8f84"], light: ["#b05a4c", "#96473a"] },
+    sage: { label: "세이지", dark: ["#b3cc9c", "#98b582"], light: ["#557d3e", "#426630"] },
+    moon: { label: "문라이트", dark: ["#c9cdd9", "#aeb3c2"], light: ["#5a6178", "#474d63"] },
+};
+
+/** The palette of [name] with the chosen accent. */
+export function palette(name: ThemeName, accent: AccentName): Palette {
+    const base = palettes[name];
+    const [main, deep] = ACCENTS[accent][name];
+    return {
+        ...base,
+        accent: main,
+        accent2: deep,
+        star: main,
+        selection: main + (name === "dark" ? "30" : "26"),
+        syntax: { ...base.syntax, func: name === "dark" ? main : deep },
+    };
+}
+
 /** Sets the palette as CSS variables (`--bg`, `--syntax-keyword`, ...). */
-export function applyCssVariables(name: ThemeName): void {
-    const palette = palettes[name];
+export function applyCssVariables(name: ThemeName, palette: Palette): void {
     const style = document.documentElement.style;
     for (const [key, value] of Object.entries(palette)) {
         if (typeof value === "string") style.setProperty(`--${kebab(key)}`, value);
@@ -140,9 +163,8 @@ export function applyCssVariables(name: ThemeName): void {
     document.documentElement.style.colorScheme = name;
 }
 
-/** Monaco's theme data for the palette; `monaco.ts` registers it as `starlight-dark` / `starlight-light`. */
-export function monacoTheme(name: ThemeName) {
-    const p = palettes[name];
+/** Monaco's theme data for a palette of [name]; `monaco.ts` registers it. */
+export function monacoTheme(name: ThemeName, p: Palette) {
     const s = p.syntax;
     const hex = (color: string) => color.replace("#", "");
     return {
@@ -280,7 +302,7 @@ export function monacoTheme(name: ThemeName) {
     };
 }
 
-export function preferredTheme(): ThemeName {
+export function systemTheme(): ThemeName {
     return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
