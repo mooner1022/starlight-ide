@@ -60,6 +60,8 @@ const ICONS: Record<string, string> = {
     error: "M8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zM5.5 5.5l5 5M10.5 5.5l-5 5",
     check: "M3 8.5l3 3 7-7",
     clear: "M3 13h10M5 9.5l5.5-5.5 2.5 2.5-5.5 5.5H5z",
+    panelLeft: "M2.5 3h11v10h-11zM6.5 3v10",
+    panelRight: "M2.5 3h11v10h-11zM9.5 3v10",
 };
 
 export function icon(name: keyof typeof ICONS | string, size = 16): SVGSVGElement {

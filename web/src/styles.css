@@ -166,13 +166,26 @@ kbd {
     height: 100%;
     padding: 0 var(--gap) 0;
     column-gap: 0;
-    grid-template-columns: var(--sidebar-width) var(--gap) minmax(0, 1fr) var(--gap) var(--side-width);
+    --left: var(--sidebar-width);
+    --left-gap: var(--gap);
+    --right: var(--side-width);
+    --right-gap: var(--gap);
+    grid-template-columns: var(--left) var(--left-gap) minmax(0, 1fr) var(--right-gap) var(--right);
     grid-template-rows: 54px minmax(0, 1fr) 28px;
+    transition: grid-template-columns 220ms var(--ease);
     grid-template-areas:
         "top top top top top"
         "sidebar split1 center split2 side"
         "status status status status status";
 }
+
+/* Collapsed side panels */
+.ide.no-left { --left: 0px; --left-gap: 0px; }
+.ide.no-right { --right: 0px; --right-gap: 0px; }
+.ide.no-left .sidebar, .ide.no-left .splitter-sidebar,
+.ide.no-right .side-panel, .ide.no-right .splitter-side { visibility: hidden; min-width: 0; border-width: 0; }
+.ide.no-left .brand { width: auto; }
+.icon-button.off { color: var(--faint); }
 
 .card {
     background: var(--surface);
@@ -221,6 +234,10 @@ kbd {
 .chip.state-on { color: var(--success); background: color-mix(in srgb, var(--success) 13%, transparent); }
 .chip.state-pending { color: var(--warning); background: color-mix(in srgb, var(--warning) 13%, transparent); }
 .switch-label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+/* Not compiled: StarLight won't toggle it, so the switch looks unavailable. */
+.switch-label.needs-compile .switch { opacity: .45; border-style: dashed; }
+.chip-button { border: none; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+.chip-button:hover { background: color-mix(in srgb, var(--warning) 22%, transparent); }
 
 .finder {
     display: flex;
@@ -820,6 +837,20 @@ kbd {
 }
 .toast.shown { opacity: 1; transform: none; }
 .toast .icon { width: 26px; height: 26px; padding: 5px; border-radius: 50%; }
+.toast.has-action { pointer-events: auto; border-radius: 18px; max-width: 460px; }
+.toast-action {
+    flex: none;
+    margin-left: 4px;
+    padding: 5px 12px;
+    border: none;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-text);
+    background: var(--accent);
+    white-space: nowrap;
+}
+.toast-action:hover { background: color-mix(in srgb, var(--accent) 88%, white); }
 .toast-info .icon { color: var(--info); background: color-mix(in srgb, var(--info) 15%, transparent); }
 .toast-success .icon { color: var(--success); background: color-mix(in srgb, var(--success) 15%, transparent); }
 .toast-warning .icon { color: var(--warning); background: color-mix(in srgb, var(--warning) 15%, transparent); }
@@ -836,7 +867,8 @@ kbd {
     overflow: hidden;
     background: linear-gradient(180deg, color-mix(in srgb, var(--glow-a) 22%, var(--canvas)) 0%, var(--surface) 45%, color-mix(in srgb, var(--glow-b) 70%, var(--canvas)) 100%);
 }
-.sky { position: absolute; inset: 0; pointer-events: none; }
+.sky { position: absolute; inset: -4%; pointer-events: none; animation: drift 120s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate3d(-2.5%, 1.5%, 0) rotate(.6deg); } }
 .star {
     position: absolute;
     border-radius: 50%;
@@ -856,11 +888,30 @@ kbd {
     transform: rotate(-34deg);
     transform-origin: left center;
 }
+/* Meteors cross now and then, from main.ts. */
+.meteor {
+    position: absolute;
+    width: 140px;
+    height: 1.5px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, color-mix(in srgb, white 95%, transparent), transparent);
+    transform: rotate(-34deg);
+    transform-origin: left center;
+    opacity: 0;
+    animation: meteor 1.6s ease-out forwards;
+}
+@keyframes meteor {
+    0% { opacity: 0; translate: 0 0; }
+    15% { opacity: .9; }
+    100% { opacity: 0; translate: -260px 175px; }
+}
+[data-theme="light"] .meteor { background: linear-gradient(90deg, var(--accent), transparent); }
 [data-theme="light"] .star { background: var(--accent); }
 [data-theme="light"] .shooting-star { background: linear-gradient(90deg, var(--accent), transparent); }
 @keyframes twinkle { 50% { opacity: .9; } }
 @media (prefers-reduced-motion: reduce) {
     .star { animation: none; opacity: .5; }
+    .sky, .login-logo, .login-logo .logo { animation: none; }
     * { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
 .login-card {
@@ -882,7 +933,13 @@ kbd {
     background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, var(--surface3)) 0%, color-mix(in srgb, var(--accent) 8%, var(--surface)) 70%);
     border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
     box-shadow: 0 0 0 22px color-mix(in srgb, var(--accent) 3%, transparent), 0 0 0 46px color-mix(in srgb, var(--accent) 2%, transparent);
+    animation: breathe 7s ease-in-out infinite;
 }
+@keyframes breathe {
+    50% { box-shadow: 0 0 0 28px color-mix(in srgb, var(--accent) 4.5%, transparent), 0 0 0 58px color-mix(in srgb, var(--accent) 2.5%, transparent); }
+}
+.login-logo .logo { animation: turn 60s linear infinite; }
+@keyframes turn { to { transform: rotate(360deg); } }
 .login-overline { display: inline-flex; align-items: center; gap: 6px; font-size: 22px; font-weight: 300; color: var(--accent); }
 .login-overline .sparkle { width: 18px; height: 18px; }
 .login-brand h1 { margin: 2px 0 10px; font-size: 40px; font-weight: 600; letter-spacing: .26em; margin-right: -.26em; }

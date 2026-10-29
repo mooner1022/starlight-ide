@@ -7,15 +7,18 @@ type Kind = "info" | "success" | "warning" | "error";
 const toasts = h("div", { class: "toasts", role: "status", "aria-live": "polite" });
 document.body.appendChild(toasts);
 
-export function toast(message: string, kind: Kind = "info", timeoutMillis = 4000): void {
+/** A short message; with [action], a button that runs it and closes the toast. */
+export function toast(message: string, kind: Kind = "info", timeoutMillis = 4000, action?: { label: string; run: () => void }): void {
     const iconName = { info: "bolt", success: "check", warning: "warning", error: "error" }[kind];
-    const element = h("div", { class: `toast toast-${kind}` }, icon(iconName), h("span", {}, message));
-    toasts.appendChild(element);
-    requestAnimationFrame(() => element.classList.add("shown"));
-    setTimeout(() => {
+    const close = () => {
         element.classList.remove("shown");
         setTimeout(() => element.remove(), 250);
-    }, timeoutMillis);
+    };
+    const element = h("div", { class: `toast toast-${kind}` + (action ? " has-action" : "") }, icon(iconName), h("span", {}, message),
+        action ? h("button", { type: "button", class: "toast-action", onClick: () => { close(); action.run(); } }, action.label) : null);
+    toasts.appendChild(element);
+    requestAnimationFrame(() => element.classList.add("shown"));
+    setTimeout(close, timeoutMillis);
 }
 
 interface Field {

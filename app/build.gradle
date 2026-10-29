@@ -15,9 +15,9 @@ android {
         applicationId "dev.mooner.starlightide"
         minSdk 26
         targetSdk 33
-        versionCode 1
+        versionCode 2
         // Used as the plugin version in starlight.json checks.
-        versionName "0.1.0"
+        versionName "0.1.1"
     }
 
     buildTypes {
@@ -99,7 +99,7 @@ dependencies {
     // Provided by the Ktor plugin (starlight.json: "ktor@3.6.0"); keep the versions equal.
     compileOnly "io.ktor:ktor-server-cio:$ktorVersion"
     // Provided by the Workspace plugin (starlight.json: "workspace@1.0.0"); the jar is its apiJar output.
-    compileOnly files("libs/workspace-api-1.0.0.jar")
+    compileOnly files("libs/workspace-api-1.0.1.jar")
 
     testImplementation "junit:junit:4.13.2"
     // The compiler's stdlib; without it the test classpath settles on the older one Ktor asks for.
@@ -107,5 +107,5 @@ dependencies {
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0"
     testImplementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0"
     testImplementation "io.ktor:ktor-server-cio:$ktorVersion"
-    testImplementation files("libs/workspace-api-1.0.0.jar")
+    testImplementation files("libs/workspace-api-1.0.1.jar")
 }

@@ -49,8 +49,23 @@ function showLogin(version: string): void {
             submit.disabled = false;
         }
     });
-    app.replaceChildren(h("div", { class: "login" }, sky(), form));
+    const field = sky();
+    app.replaceChildren(h("div", { class: "login" }, field, form));
     input.focus();
+    meteors(field);
+}
+
+/** A meteor every few seconds while the login is shown, unless the user prefers reduced motion. */
+function meteors(field: HTMLElement): void {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const launch = () => {
+        if (!field.isConnected) return;
+        const meteor = h("span", { class: "meteor", style: `left:${35 + Math.random() * 60}%;top:${Math.random() * 45}%` });
+        meteor.addEventListener("animationend", () => meteor.remove());
+        field.appendChild(meteor);
+        setTimeout(launch, 3500 + Math.random() * 5000);
+    };
+    setTimeout(launch, 1200);
 }
 
 /** A field of stars behind the login, twinkling unless the user prefers reduced motion. */

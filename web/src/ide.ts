@@ -151,6 +151,9 @@ export class Ide {
             h("button", { type: "button", class: "finder", onClick: () => void this.quickOpen() },
                 icon("search", 14), h("span", {}, "파일로 이동"), h("kbd", {}, "Ctrl P")),
             h("div", { class: "topbar-actions" },
+                iconButton("panelLeft", "왼쪽 패널 접기/펴기 (Ctrl+B)", () => this.togglePanel("left"), { class: "toggle-left" }),
+                iconButton("panelRight", "오른쪽 패널 접기/펴기 (Ctrl+Alt+B)", () => this.togglePanel("right"), { class: "toggle-right" }),
+                h("span", { class: "divider" }),
                 iconButton("save", "저장 (Ctrl+S)", () => void this.save()),
                 this.compileButton,
                 h("span", { class: "divider" }),
@@ -165,9 +168,18 @@ export class Ide {
 
         this.root.append(header, sidebar, splitter("sidebar"), center, splitter("side"), this.side.root, statusBar);
         restoreSizes(this.root);
+        for (const side of ["left", "right"] as const)
+            if (localStorage.getItem(`ide.collapsed.${side}`) === "true") this.togglePanel(side);
         this.setConnection(false);
         // Monaco measures characters once; web fonts arrive later.
         void document.fonts.ready.then(() => monaco.editor.remeasureFonts());
+    }
+
+    /** Hides or shows the project/file panel (left) or the debug room/events panel (right). */
+    private togglePanel(side: "left" | "right"): void {
+        const collapsed = this.root.classList.toggle(side === "left" ? "no-left" : "no-right");
+        this.root.querySelector(side === "left" ? ".toggle-left" : ".toggle-right")?.classList.toggle("off", collapsed);
+        localStorage.setItem(`ide.collapsed.${side}`, String(collapsed));
     }
 
     private setCompiling(compiling: boolean): void {
@@ -184,6 +196,8 @@ export class Ide {
         this.editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.KeyB, () => void this.compile());
         this.editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => this.bottom.show("search"));
         this.editor.addCommand(mod | monaco.KeyCode.KeyP, () => void this.quickOpen());
+        this.editor.addCommand(mod | monaco.KeyCode.KeyB, () => this.togglePanel("left"));
+        this.editor.addCommand(mod | monaco.KeyMod.Alt | monaco.KeyCode.KeyB, () => this.togglePanel("right"));
         // The same keys outside the editor.
         document.addEventListener("keydown", (e) => {
             if (!(e.ctrlKey || e.metaKey) || this.editor.hasTextFocus()) return;
@@ -192,6 +206,7 @@ export class Ide {
             else if (key === "b" && e.shiftKey) { e.preventDefault(); void this.compile(); }
             else if (key === "f" && e.shiftKey) { e.preventDefault(); this.bottom.show("search"); }
             else if (key === "p" && !e.shiftKey) { e.preventDefault(); void this.quickOpen(); }
+            else if (key === "b" && !e.shiftKey) { e.preventDefault(); this.togglePanel(e.altKey ? "right" : "left"); }
         });
     }
 
@@ -254,13 +269,34 @@ export class Ide {
     }
 
     async setEnabled(enabled: boolean): Promise<void> {
-        if (!this.project) return;
-        try {
-            this.project = { ...this.project, ...await api.setEnabled(this.project.id, enabled) };
-            await this.refreshProjects();
-        } catch (e) {
-            toast(errorMessage(e), "error");
+        const project = this.project;
+        if (!project) return;
+        // StarLight turns a project on or off only once it is compiled; say so instead of a switch that snaps back.
+        if (!project.compiled) {
+            this.renderHeader();
+            const action = enabled ? "켜기" : "끄기";
+            toast(`${project.name}은(는) 아직 컴파일되지 않아서 ${enabled ? "켤" : "끌"} 수 없어요. 먼저 컴파일하세요.`, "warning", 8000, {
+                label: `컴파일하고 ${action}`,
+                run: () => void this.compileAndSetEnabled(enabled),
+            });
+            return;
         }
+        try {
+            this.project = { ...project, ...await api.setEnabled(project.id, enabled) };
+            await this.refreshProjects();
+            toast(`${project.name}을(를) ${enabled ? "켰어요" : "껐어요"}`, "success", 2500);
+        } catch (e) {
+            this.renderHeader();
+            toast(e instanceof ApiError && /not compiled/.test(e.message)
+                ? `${project.name}은(는) 컴파일되지 않아서 ${enabled ? "켤" : "끌"} 수 없어요. 먼저 컴파일하세요.`
+                : `${enabled ? "켜지" : "끄지"} 못했어요: ${errorMessage(e)}`, "error", 6000);
+        }
+    }
+
+    private async compileAndSetEnabled(enabled: boolean): Promise<void> {
+        const result = await this.compile();
+        if (result?.success) await this.setEnabled(enabled);
+        else if (result) toast("컴파일에 실패해서 켜지 않았어요. 출력 패널의 오류를 확인하세요.", "error", 6000);
     }
 
     private renderProjects(): void {
@@ -289,13 +325,21 @@ export class Ide {
         if (!project) return;
         const toggle = h("input", { type: "checkbox", class: "switch", checked: project.enabled, "aria-label": "프로젝트 켜기" });
         toggle.addEventListener("change", () => void this.setEnabled(toggle.checked));
+        // The switch beside it already says on/off, so the chip tells whether it is compiled.
+        const stateChip = project.compiled
+            ? h("span", { class: "chip state-" + stateClass(project) }, h("span", { class: "project-dot " + stateClass(project) }), project.enabled ? "실행 중" : "컴파일됨")
+            : h("button", { type: "button", class: "chip chip-button state-pending", title: "눌러서 컴파일", onClick: () => void this.compile() },
+                h("span", { class: "project-dot pending" }), "컴파일 필요");
         this.header.append(
             h("div", { class: "project-chip" },
                 avatar(project.name),
                 h("span", { class: "header-name" }, project.name),
                 h("span", { class: "chip" }, shortLanguage(project.languageId)),
-                h("span", { class: "chip state-" + stateClass(project) }, h("span", { class: "project-dot " + stateClass(project) }), stateLabel(project))),
-            h("label", { class: "switch-label", title: "프로젝트 켜기/끄기" }, toggle, h("span", {}, project.enabled ? "켜짐" : "꺼짐")));
+                stateChip),
+            h("label", {
+                class: "switch-label" + (project.compiled ? "" : " needs-compile"),
+                title: project.compiled ? "프로젝트 켜기/끄기" : "컴파일한 뒤에 켜거나 끌 수 있어요",
+            }, toggle, h("span", {}, project.enabled ? "켜짐" : "꺼짐")));
     }
 
     // ------------------------------------------------------------------ files
@@ -477,7 +521,7 @@ export class Ide {
             h("h2", {}, this.project ? "열린 파일이 없어요" : "프로젝트를 고르세요"),
             h("p", {}, this.project ? "왼쪽에서 파일을 고르거나 바로 찾아 여세요." : "왼쪽 목록에서 프로젝트를 고르거나 새로 만드세요."),
             h("div", { class: "shortcut-grid" },
-                ...[["Ctrl P", "파일로 이동"], ["Ctrl S", "저장"], ["Ctrl ⇧ B", "컴파일"], ["Ctrl ⇧ F", "프로젝트 검색"], ["F1", "명령 팔레트"], ["Ctrl G", "줄로 이동"]]
+                ...[["Ctrl P", "파일로 이동"], ["Ctrl S", "저장"], ["Ctrl ⇧ B", "컴파일"], ["Ctrl ⇧ F", "프로젝트 검색"], ["F1", "명령 팔레트"], ["Ctrl B", "왼쪽 패널 접기"]]
                     .map(([key, label]) => h("div", { class: "shortcut" }, h("span", {}, label), h("kbd", {}, key)))));
     }
 

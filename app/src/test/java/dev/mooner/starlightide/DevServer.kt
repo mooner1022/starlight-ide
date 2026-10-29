@@ -78,7 +78,8 @@ class DevServer {
             }
         }
         repeat(6) { bot.log("message handled in ${12 + it * 3}ms", if (it == 4) "WARN" else "INFO") }
-        host.addProject("weather").also { it.setEnabled(false) }
+        // Compiled but off; notice-board below is on but not compiled, so StarLight refuses to toggle it.
+        host.addProject("weather").also { it.compile(); it.setEnabled(false) }
         host.addProject("notice-board")
 
         val webDir = File("build/generated/webResources")

@@ -2,7 +2,7 @@
   "id":"ide",
   "name":"Web IDE",
   "main_class":"dev.mooner.starlightide.StarlightIdePlugin",
-  "version":"0.1.0",
+  "version":"0.1.1",
   "api_version":"0.3.2",
   "assetRevision":1,
   "dependency":["ktor@3.6.0", "workspace@1.0.0"],
