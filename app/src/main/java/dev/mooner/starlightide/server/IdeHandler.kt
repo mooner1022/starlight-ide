@@ -23,6 +23,8 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
+import io.ktor.util.cio.ChannelIOException
+import io.ktor.utils.io.ClosedByteChannelException
 import io.ktor.utils.io.readBuffer
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.CancellationException
@@ -82,6 +84,9 @@ class IdeHandler(
         } catch (e: IllegalArgumentException) {
             respondError(call, HttpStatusCode.BadRequest, e.message ?: "Bad request")
         } catch (e: Throwable) {
+            // The page went away: reloaded, closed, or switched projects, which reopens the event stream.
+            if (isDisconnect(e))
+                return
             log("Failed to handle ${method.value} $path: $e")
             if (!call.response.isCommitted)
                 respondError(call, HttpStatusCode.InternalServerError, e.message ?: e.toString())
@@ -329,6 +334,10 @@ class IdeHandler(
             }
         }
     }
+
+    /** Whether [e] means the connection broke while the request was read or the response written. */
+    private fun isDisconnect(e: Throwable): Boolean =
+        e is ChannelIOException || e is ClosedByteChannelException
 
     private fun event(name: String, data: JsonElement): String =
         "event: $name\ndata: $data\n\n"

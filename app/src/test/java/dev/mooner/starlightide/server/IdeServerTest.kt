@@ -22,7 +22,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.ServerSocket
+import java.net.Socket
 import java.net.URL
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.zip.GZIPInputStream
 
 /** The IDE's HTTP API over a fake StarLight. */
@@ -37,6 +39,7 @@ class IdeServerTest {
     private lateinit var engine: HttpServerEngine
     private lateinit var workspace: DefaultWorkspace
     private val sessions = Sessions()
+    private val logged = CopyOnWriteArrayList<String>()
 
     @Volatile
     private var settings = IdeSettings(tokenHash = sha256Hex(TOKEN), requireToken = true)
@@ -57,7 +60,7 @@ class IdeServerTest {
             staticFiles = StaticFiles(classLoader, "testweb/"),
             types = TypeDefinitions(classLoader),
             version = "0.1.0",
-            log = {},
+            log = { logged += it },
         ))
         engine.start("127.0.0.1", port)
     }
@@ -144,6 +147,32 @@ class IdeServerTest {
     }
 
     @Test
+    fun streamEndsQuietlyWhenThePageLeaves() {
+        login()
+        val connection = open("GET", "/api/stream?project=bot")
+        val reader = connection.inputStream.bufferedReader()
+        assertEquals(": connected", reader.readLine())
+        connection.inputStream.close()
+        connection.disconnect()
+
+        // The server finds out on its next writes.
+        repeat(20) {
+            bot.log("after $it")
+            Thread.sleep(50)
+        }
+        Thread.sleep(300)
+        assertEquals(emptyList<String>(), logged.filter { "Failed" in it })
+    }
+
+    @Test
+    fun requestCutOffQuietly() {
+        login()
+        cutOffUpload("/api/projects/bot/debug", mapOf("Cookie" to cookie!!, "X-Requested-With" to "starlight-ide"))
+        Thread.sleep(500)
+        assertEquals(emptyList<String>(), logged.filter { "Failed" in it })
+    }
+
+    @Test
     fun streamsChanges() {
         login()
         val connection = open("GET", "/api/stream?project=bot")
@@ -202,6 +231,21 @@ class IdeServerTest {
             }
         }
         return events
+    }
+
+    /** Sends [headers] and a part of the body it announces, then drops the connection. */
+    private fun cutOffUpload(path: String, headers: Map<String, String>) {
+        Socket("127.0.0.1", port).use { socket ->
+            val head = buildString {
+                append("POST $path HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 100000\r\n")
+                headers.forEach { (name, value) -> append("$name: $value\r\n") }
+                append("\r\n{\"text\":")
+            }
+            socket.getOutputStream().apply { write(head.toByteArray()); flush() }
+            Thread.sleep(200)
+            // Reset, not a polite close, the way a dropped network or killed process ends it.
+            socket.setSoLinger(true, 0)
+        }
     }
 
     private class Response(val status: Int, private val headers: Map<String, List<String>>, val body: String) {
