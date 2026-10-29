@@ -85,6 +85,8 @@ internal object JsonMapping {
                 put("message", change.message)
                 putJsonArray("replies") { change.replies.forEach { add(it) } }
             }
+            // Workspace patch releases may add kinds of changes; the page ignores ones it doesn't know.
+            else -> type("other")
         }
     }
 

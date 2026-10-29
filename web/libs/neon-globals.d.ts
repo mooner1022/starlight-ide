@@ -7,6 +7,16 @@ interface Console {
     warn(...data: any[]): void;
     error(...data: any[]): void;
     debug(...data: any[]): void;
+    trace(...data: any[]): void;
+    table(data: any): void;
+    dir(item: any): void;
+    assert(condition?: boolean, ...data: any[]): void;
+    count(label?: string): void;
+    time(label?: string): void;
+    timeEnd(label?: string): void;
+    timeLog(label?: string, ...data: any[]): void;
+    group(...label: any[]): void;
+    groupEnd(): void;
 }
 declare var console: Console;
 
@@ -15,6 +25,7 @@ declare function clearTimeout(id?: number): void;
 declare function setInterval(handler: (...args: any[]) => void, timeout?: number, ...args: any[]): number;
 declare function clearInterval(id?: number): void;
 declare function queueMicrotask(callback: () => void): void;
+declare function structuredClone<T>(value: T): T;
 
 declare function atob(data: string): string;
 declare function btoa(data: string): string;
