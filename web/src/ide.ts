@@ -2,7 +2,7 @@
 
 import { api, ApiError, type Change, type CompileResult, type EventInfo, type FileEntry, type Language, type Log, type Project } from "./api";
 import { button, clear, h, icon, iconButton, logo, sparkle } from "./dom";
-import { editorFont, monaco, setMonacoTheme, setStarlightTypes } from "./monaco";
+import { editorFont, isLibUri, monaco, setMonacoTheme, setStarlightTypes } from "./monaco";
 import { BottomPanel, SidePanel } from "./panels";
 import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
 import { confirmDialog, dialog, menu, pick, toast } from "./ui";
@@ -16,6 +16,8 @@ interface Doc {
     savedVersionId: number;
     /** Another tool changed the file while it had unsaved edits here. */
     changedElsewhere: boolean;
+    /** StarLight's type declarations, opened by going to a definition; not a project file. */
+    readOnly?: boolean;
     viewState?: monaco.editor.ICodeEditorViewState | null;
 }
 
@@ -29,6 +31,8 @@ const PROJECT_SORTS: { value: ProjectSort; label: string }[] = [
     { value: "language", label: "언어순" },
 ];
 const PRELOADED = /\.(m?js|ts|json)$/;
+/** Tab keys of StarLight's declaration files, which can't collide with project paths. */
+const LIB_TAB_PREFIX = "::starlight/";
 const MAX_PRELOADED_FILES = 60;
 const MAX_PRELOADED_BYTES = 256 * 1024;
 const MARKER_OWNER = "starlight";
@@ -103,6 +107,12 @@ export class Ide {
             fixedOverflowWidgets: true,
             // Words of the file would bury what the language service knows.
             wordBasedSuggestions: "off",
+            // Ctrl+click goes to the declaration, and from the declaration itself to its references.
+            gotoLocation: {
+                multipleDefinitions: "peek",
+                multipleReferences: "peek",
+                alternativeDefinitionCommand: "editor.action.goToReferences",
+            },
         });
         this.build();
         this.bindKeys();
@@ -117,6 +127,47 @@ export class Ide {
             if (this.dirtyDocs().length > 0) e.preventDefault();
         });
         this.registerEventSnippets();
+        this.registerOpener();
+    }
+
+    /**
+     * Going to a definition or reference in another file (Ctrl+click, F12, the references peek) opens it in a tab;
+     * Monaco can only move within the file it shows.
+     */
+    private registerOpener(): void {
+        monaco.editor.registerEditorOpener({
+            openCodeEditor: (_source, resource, selectionOrPosition) => {
+                const position = !selectionOrPosition ? undefined
+                    : "startLineNumber" in selectionOrPosition
+                        ? { line: selectionOrPosition.startLineNumber, column: selectionOrPosition.startColumn }
+                        : { line: selectionOrPosition.lineNumber, column: selectionOrPosition.column };
+                if (isLibUri(resource)) {
+                    const model = monaco.editor.getModel(resource);
+                    if (!model) return false;
+                    this.openLib(model, position);
+                    return true;
+                }
+                const path = this.pathOf(resource);
+                if (!path) return false;
+                void this.openFile(path, position);
+                return true;
+            },
+        });
+    }
+
+    /** Opens one of StarLight's declaration files in a read-only tab. */
+    private openLib(model: monaco.editor.ITextModel, position?: { line: number; column?: number }): void {
+        const key = LIB_TAB_PREFIX + model.uri.path.slice(model.uri.path.lastIndexOf("/") + 1);
+        if (!this.docs.has(key))
+            this.docs.set(key, { path: key, model, savedHash: "", savedVersionId: model.getAlternativeVersionId(), changedElsewhere: false, readOnly: true });
+        if (!this.tabs.includes(key)) this.tabs.push(key);
+        this.activate(key);
+        if (position) {
+            const target = { lineNumber: position.line, column: position.column ?? 1 };
+            this.editor.setPosition(target);
+            this.editor.revealPositionInCenter(target);
+        }
+        this.editor.focus();
     }
 
     async start(): Promise<void> {
@@ -224,6 +275,7 @@ export class Ide {
         this.editor.addCommand(mod | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => this.bottom.show("search"));
         this.editor.addCommand(mod | monaco.KeyCode.KeyP, () => void this.quickOpen());
         this.editor.addCommand(mod | monaco.KeyCode.KeyB, () => this.togglePanel("left"));
+        this.editor.addCommand(mod | monaco.KeyCode.KeyJ, () => this.bottom.toggleCollapsed());
         this.editor.addCommand(mod | monaco.KeyMod.Alt | monaco.KeyCode.KeyB, () => this.togglePanel("right"));
         // The same keys outside the editor.
         document.addEventListener("keydown", (e) => {
@@ -234,6 +286,7 @@ export class Ide {
             else if (key === "f" && e.shiftKey) { e.preventDefault(); this.bottom.show("search"); }
             else if (key === "p" && !e.shiftKey) { e.preventDefault(); void this.quickOpen(); }
             else if (key === "b" && !e.shiftKey) { e.preventDefault(); this.togglePanel(e.altKey ? "right" : "left"); }
+            else if (key === "j") { e.preventDefault(); this.bottom.toggleCollapsed(); }
         });
     }
 
@@ -511,6 +564,7 @@ export class Ide {
         this.active = path;
         const doc = path ? this.docs.get(path) : undefined;
         this.editor.setModel(doc?.model ?? null);
+        this.editor.updateOptions({ readOnly: !!doc?.readOnly });
         if (doc?.viewState) this.editor.restoreViewState(doc.viewState);
         this.editorHost.hidden = !doc;
         this.emptyState.hidden = !!doc;
@@ -518,7 +572,7 @@ export class Ide {
         this.renderTabs();
         this.renderBanner();
         this.renderSaved();
-        this.status.language.textContent = doc ? languageLabel(doc.path) : "";
+        this.status.language.textContent = doc ? (doc.readOnly ? "StarLight 타입 · 읽기 전용" : languageLabel(doc.path)) : "";
     }
 
     private closeTab(path: string): void {
@@ -539,7 +593,7 @@ export class Ide {
 
     private closeAll(): void {
         this.editor.setModel(null);
-        for (const doc of this.docs.values()) doc.model.dispose();
+        for (const doc of this.docs.values()) if (!doc.readOnly) doc.model.dispose();
         this.docs.clear();
         this.tabs = [];
         this.active = null;
@@ -551,11 +605,11 @@ export class Ide {
         clear(this.tabBar);
         for (const path of this.tabs) {
             const doc = this.docs.get(path);
-            const name = path.slice(path.lastIndexOf("/") + 1);
+            const name = doc?.readOnly ? path.slice(LIB_TAB_PREFIX.length) : path.slice(path.lastIndexOf("/") + 1);
             const active = path === this.active;
             const tab = h("div", {
                 class: "tab" + (active ? " active" : "") + (doc?.changedElsewhere ? " conflict" : ""),
-                role: "tab", "aria-selected": active, title: path, tabIndex: 0,
+                role: "tab", "aria-selected": active, title: doc?.readOnly ? "StarLight 타입 선언 (읽기 전용)" : path, tabIndex: 0,
                 onClick: () => this.activate(path),
                 onAuxclick: (e: MouseEvent) => { if (e.button === 1) this.closeTab(path); },
             },
@@ -624,7 +678,7 @@ export class Ide {
     // ------------------------------------------------------------------ editing files
 
     private isDirty(doc: Doc): boolean {
-        return doc.model.getAlternativeVersionId() !== doc.savedVersionId;
+        return !doc.readOnly && doc.model.getAlternativeVersionId() !== doc.savedVersionId;
     }
 
     private dirtyDocs(): Doc[] {
@@ -634,7 +688,7 @@ export class Ide {
     /** Saves the active file; false if it couldn't be saved. */
     async save(path = this.active): Promise<boolean> {
         const doc = path ? this.docs.get(path) : undefined;
-        if (!doc || !this.project) return true;
+        if (!doc || !this.project || doc.readOnly) return true;
         if (!this.isDirty(doc) && !doc.changedElsewhere) return true;
         const text = doc.model.getValue();
         const versionId = doc.model.getAlternativeVersionId();
@@ -782,7 +836,7 @@ export class Ide {
         if (!doc) return;
         this.tabs = this.tabs.filter((p) => p !== path);
         if (this.active === path) this.activate(this.tabs[0] ?? null);
-        doc.model.dispose();
+        if (!doc.readOnly) doc.model.dispose();
         this.docs.delete(path);
         this.renderTabs();
     }
@@ -856,6 +910,7 @@ export class Ide {
         this.closeStream = api.stream(this.project?.id ?? null, {
             change: (change) => void this.onChange(change),
             log: (log: Log) => this.bottom.appendLog(log),
+            appLog: (log: Log) => this.bottom.appendAppLog(log),
             status: (open) => this.setConnection(open),
         });
     }

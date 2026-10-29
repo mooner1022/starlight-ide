@@ -25,6 +25,7 @@ Everything is JSON (UTF-8) unless noted. Paths of files are relative to the proj
 | GET | `/api/languages` | | `[{ id, name, fileExtension }]` |
 | GET | `/api/events` | | `[{ id, name, functionName, comment?, args: [{ name, type }] }]` |
 | GET | `/api/types` | | `text/plain`: TypeScript declarations of StarLight's globals and event argument types |
+| GET | `/api/logs` | `?since=<millis>` | `[Log]` of StarLight and its plugins (kept since the workspace plugin started) |
 | GET | `/api/projects/{p}` | | `Project` with `allowedEvents: [id]` |
 | GET | `/api/projects/{p}/files` | `?path=.` | `{ entries: [{ path, isDirectory, size, modifiedMillis }], truncated }` |
 | GET | `/api/projects/{p}/file` | `?path=` | `File` |
@@ -60,6 +61,7 @@ Server-sent events (`text/event-stream`). The page reconnects with `EventSource`
   `fileDeleted`, `fileRenamed`, `compiled`, `enabledChanged`, `eventsChanged`, `projectCreated`, `projectDeleted`,
   `debugMessageSent`. `actor` is `"ide"` for the IDE's own changes.
 - `event: log` — a new log of the project given by `?project=`: `Log`.
+- `event: appLog` — a new log of StarLight or a plugin: `Log`.
 - A comment line (`: ping`) every 15 seconds keeps the connection open.
 
 ## Static files

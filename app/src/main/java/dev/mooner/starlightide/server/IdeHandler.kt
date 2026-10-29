@@ -194,6 +194,10 @@ class IdeHandler(
             segments == listOf("types") ->
                 call.respondText(types.generate(workspace.apiCatalog(), workspace.eventCatalog()).declarations, ContentType.Text.Plain)
             segments == listOf("stream") -> stream(call, workspace)
+            segments == listOf("logs") -> {
+                val since = call.request.queryParameters["since"]?.toLongOrNull() ?: 0
+                respondJson(call, JsonArray(workspace.appLogs(since).map(JsonMapping::log)))
+            }
             segments.size >= 2 && segments[0] == "projects" ->
                 routeProject(call, method, projectOf(workspace, segments[1]), segments.drop(2), settings)
             else -> throw ApiException(HttpStatusCode.NotFound, "No such API: /${segments.joinToString("/")}")
@@ -298,7 +302,7 @@ class IdeHandler(
         }
     }
 
-    /** Server-sent events: workspace changes, and the logs of the project the page shows. */
+    /** Server-sent events: workspace changes, the app's logs, and the logs of the project the page shows. */
     private suspend fun stream(call: ApplicationCall, workspace: Workspace) {
         val project = call.request.queryParameters["project"]?.let { projectOf(workspace, it) }
         call.response.header(HttpHeaders.CacheControl, "no-cache")
@@ -309,6 +313,7 @@ class IdeHandler(
                 val producers = listOf(
                     launch { workspace.changes.collect { events.send(event("change", JsonMapping.change(it))) } },
                     launch { project?.logStream()?.collect { events.send(event("log", JsonMapping.log(it))) } },
+                    launch { workspace.appLogStream().collect { events.send(event("appLog", JsonMapping.log(it))) } },
                 )
                 try {
                     writeStringUtf8(": connected\n\n")

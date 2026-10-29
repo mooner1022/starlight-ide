@@ -25,6 +25,11 @@ export class BottomPanel {
     };
     private minLevel = Number(localStorage.getItem("ide.logLevel") ?? 2);
     private follow = true;
+    /** Logs of the open project, or of StarLight and all its plugins. */
+    private logSource: "project" | "app" = localStorage.getItem("ide.logSource") === "app" ? "app" : "project";
+    private readonly projectLogs = h("div", { class: "log-list" });
+    private readonly appLogList = h("div", { class: "log-list" });
+    private appLogsLoaded = false;
     private readonly searchInput = h("input", { class: "search-input", placeholder: "프로젝트에서 검색", spellcheck: false });
     private readonly searchRegex = h("input", { type: "checkbox" });
     private readonly searchCase = h("input", { type: "checkbox" });
@@ -46,12 +51,33 @@ export class BottomPanel {
                 h("label", { class: "toggle", title: "대소문자 구분" }, this.searchCase, h("span", {}, "Aa"))),
             this.searchResults);
         this.bodies.output.append(h("div", { class: "panel-placeholder" }, "컴파일 결과가 여기에 표시돼요. Ctrl+Shift+B로 컴파일하세요."));
-        this.show("output");
+        this.bodies.logs.append(this.projectLogs, this.appLogList);
+        this.projectLogs.hidden = this.logSource !== "project";
+        this.appLogList.hidden = this.logSource !== "app";
+        this.root.classList.toggle("collapsed", localStorage.getItem("ide.bottomCollapsed") === "true");
+        this.render();
     }
 
+    /** Shows [tab], opening the panel if it is collapsed. */
     show(tab: BottomTab): void {
         this.tab = tab;
-        this.root.classList.remove("collapsed");
+        this.setCollapsed(false);
+    }
+
+    /** Collapses the panel to its header, or opens it again. */
+    toggleCollapsed(): void {
+        this.setCollapsed(!this.root.classList.contains("collapsed"));
+    }
+
+    private setCollapsed(collapsed: boolean): void {
+        this.root.classList.toggle("collapsed", collapsed);
+        localStorage.setItem("ide.bottomCollapsed", String(collapsed));
+        this.render();
+    }
+
+    private render(): void {
+        const tab = this.tab;
+        const collapsed = this.root.classList.contains("collapsed");
         const labels: Record<BottomTab, [string, string]> = { output: ["terminal", "출력"], logs: ["bolt", "로그"], search: ["search", "검색"], problems: ["warning", "문제"] };
         clear(this.tabs);
         for (const [key, [iconName, label]] of Object.entries(labels) as [BottomTab, [string, string]][]) {
@@ -62,7 +88,12 @@ export class BottomPanel {
         }
         for (const [key, body] of Object.entries(this.bodies)) body.hidden = key !== tab;
         clear(this.actions);
-        if (tab === "logs") {
+        if (tab === "logs" && !collapsed) {
+            const sources = h("div", { class: "segmented", role: "group", "aria-label": "로그 범위" },
+                ...([["project", "프로젝트"], ["app", "앱 전체"]] as const).map(([value, label]) => h("button", {
+                    type: "button", class: value === this.logSource ? "selected" : "", "aria-pressed": value === this.logSource,
+                    onClick: () => void this.setLogSource(value),
+                }, label)));
             const level = h("select", { class: "small-select", title: "표시할 최소 수준" },
                 ...LOG_LEVELS.map((l, i) => h("option", { value: String(i), selected: i === this.minLevel }, l)));
             level.addEventListener("change", () => {
@@ -70,15 +101,42 @@ export class BottomPanel {
                 localStorage.setItem("ide.logLevel", level.value);
                 this.applyLogFilter();
             });
-            this.actions.append(level, iconButton("clear", "지우기", () => clear(this.bodies.logs)));
+            this.actions.append(sources, level, iconButton("clear", "지우기", () => clear(this.logSource === "app" ? this.appLogList : this.projectLogs)));
+            if (this.logSource === "app" && !this.appLogsLoaded) void this.loadAppLogs();
         }
-        if (tab === "search") this.searchInput.focus();
+        if (tab === "search" && !collapsed) this.searchInput.focus();
         if (tab === "problems") this.renderProblems();
-        this.actions.append(iconButton("chevronDown", "패널 접기", () => this.root.classList.add("collapsed")));
+        this.actions.append(collapsed
+            ? iconButton("chevronUp", "패널 펼치기 (Ctrl+J)", () => this.toggleCollapsed())
+            : iconButton("chevronDown", "패널 접기 (Ctrl+J)", () => this.toggleCollapsed()));
+    }
+
+    private async setLogSource(source: "project" | "app"): Promise<void> {
+        this.logSource = source;
+        localStorage.setItem("ide.logSource", source);
+        this.projectLogs.hidden = source !== "project";
+        this.appLogList.hidden = source !== "app";
+        this.render();
+        this.follow = true;
+        this.bodies.logs.scrollTop = this.bodies.logs.scrollHeight;
+    }
+
+    private async loadAppLogs(): Promise<void> {
+        this.appLogsLoaded = true;
+        try {
+            const logs = await api.appLogs();
+            // Logs that arrived through the stream meanwhile are kept after the loaded ones.
+            const streamed = Array.from(this.appLogList.children);
+            clear(this.appLogList);
+            logs.slice(-1000).forEach((log) => this.appendTo(this.appLogList, log));
+            this.appLogList.append(...streamed);
+        } catch {
+            this.appLogsLoaded = false;
+        }
     }
 
     async onProjectChanged(): Promise<void> {
-        clear(this.bodies.logs);
+        clear(this.projectLogs);
         clear(this.searchResults);
         const project = this.ide.project;
         if (!project) return;
@@ -112,18 +170,28 @@ export class BottomPanel {
 
     // ------------------------------------------------------------------ logs
 
+    /** A log of the open project. */
     appendLog(log: Log): void {
-        const body = this.bodies.logs;
+        this.appendTo(this.projectLogs, log);
+    }
+
+    /** A log of StarLight or one of its plugins. */
+    appendAppLog(log: Log): void {
+        this.appendTo(this.appLogList, log);
+    }
+
+    private appendTo(list: HTMLElement, log: Log): void {
         const row = logRow(log);
         row.hidden = LOG_LEVELS.indexOf(log.type) < this.minLevel;
-        body.appendChild(row);
-        while (body.childElementCount > MAX_LOG_ROWS) body.firstElementChild?.remove();
-        if (this.follow) body.scrollTop = body.scrollHeight;
+        list.appendChild(row);
+        while (list.childElementCount > MAX_LOG_ROWS) list.firstElementChild?.remove();
+        if (this.follow && !list.hidden) this.bodies.logs.scrollTop = this.bodies.logs.scrollHeight;
     }
 
     private applyLogFilter(): void {
-        for (const row of Array.from(this.bodies.logs.children) as HTMLElement[])
-            row.hidden = LOG_LEVELS.indexOf(row.dataset.level ?? "") < this.minLevel;
+        for (const list of [this.projectLogs, this.appLogList])
+            for (const row of Array.from(list.children) as HTMLElement[])
+                row.hidden = LOG_LEVELS.indexOf(row.dataset.level ?? "") < this.minLevel;
     }
 
     // ------------------------------------------------------------------ search

@@ -140,6 +140,7 @@ class IdeServerTest {
         val events = get("/api/events").json().jsonArray
         assertEquals("onMessage", events.first().jsonObject["functionName"]!!.jsonPrimitive.content)
         assertTrue(get("/api/types").body.contains("declare namespace StarLight"))
+        assertEquals(200, get("/api/logs?since=0").status)
     }
 
     @Test

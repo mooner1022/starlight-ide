@@ -144,14 +144,16 @@ export const api = {
     updateEvents: (id: string, allow: string[], disallow: string[]) =>
         request<{ allowed: string[] }>("PUT", project(id) + "/events", { allow, disallow }),
     logs: (id: string, since = 0) => request<Log[]>("GET", project(id) + "/logs" + query({ since })),
+    appLogs: (since = 0) => request<Log[]>("GET", "/api/logs" + query({ since })),
     debug: (id: string, text: string, options: { sender?: string; room?: string; isGroupChat?: boolean; waitSeconds?: number }) =>
         request<DebugReply>("POST", project(id) + "/debug", { text, ...options }),
 
     /** Changes and the project's logs as they happen; reconnects by itself. */
-    stream(projectId: string | null, handlers: { change: (change: Change) => void; log: (log: Log) => void; status: (open: boolean) => void }): () => void {
+    stream(projectId: string | null, handlers: { change: (change: Change) => void; log: (log: Log) => void; appLog: (log: Log) => void; status: (open: boolean) => void }): () => void {
         const source = new EventSource("/api/stream" + (projectId ? query({ project: projectId }) : ""));
         source.addEventListener("change", (e) => handlers.change(JSON.parse((e as MessageEvent).data)));
         source.addEventListener("log", (e) => handlers.log(JSON.parse((e as MessageEvent).data)));
+        source.addEventListener("appLog", (e) => handlers.appLog(JSON.parse((e as MessageEvent).data)));
         source.onopen = () => handlers.status(true);
         source.onerror = () => handlers.status(false);
         return () => source.close();

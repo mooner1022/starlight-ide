@@ -76,6 +76,13 @@ self.MonacoEnvironment = {
     },
 };
 
+// Switching files while a lookup (link hover, go to definition) runs cancels it with Monaco's "Canceled" error, which
+// nothing awaits; it isn't a failure.
+window.addEventListener("unhandledrejection", (e) => {
+    const reason = e.reason as { name?: string; message?: string } | undefined;
+    if (reason?.name === "Canceled" || reason?.message === "Canceled") e.preventDefault();
+});
+
 monaco.editor.defineTheme("starlight-dark", monacoTheme("dark") as monaco.editor.IStandaloneThemeData);
 monaco.editor.defineTheme("starlight-light", monacoTheme("light") as monaco.editor.IStandaloneThemeData);
 
@@ -94,7 +101,15 @@ ts.javascriptDefaults.setCompilerOptions(compilerOptions);
 ts.typescriptDefaults.setCompilerOptions(compilerOptions);
 ts.javascriptDefaults.setInlayHintsOptions({ includeInlayParameterNameHints: "literals" });
 ts.javascriptDefaults.setEagerModelSync(true);
+// Declarations live under file:///starlight/. Registered for both languages: going to a definition in one opens it
+// from the TypeScript defaults' copy.
 ts.javascriptDefaults.addExtraLib(neonGlobals, "file:///starlight/neon-globals.d.ts");
+ts.typescriptDefaults.addExtraLib(neonGlobals, "file:///starlight/neon-globals.d.ts");
+
+/** Whether [uri] is one of the declaration files above, shown read-only. */
+export function isLibUri(uri: monaco.Uri): boolean {
+    return uri.scheme === "file" && uri.path.startsWith("/starlight/");
+}
 
 let starlightLib: monaco.IDisposable | undefined;
 

@@ -39,6 +39,7 @@ const ICONS: Record<string, string> = {
     folderOpen: "M1.5 3.5h4.5l1.5 1.5h6v2M1.5 13.5l2-6.5h11.5l-2 6.5z",
     chevronRight: "M6 3.5l4.5 4.5-4.5 4.5",
     chevronDown: "M3.5 6l4.5 4.5 4.5-4.5",
+    chevronUp: "M3.5 10l4.5-4.5 4.5 4.5",
     play: "M4.5 2.5v11l9-5.5z",
     save: "M2.5 2.5h9l2 2v9h-11zM5 2.5v3.5h5.5V2.5M4.5 13.5v-4.5h7v4.5",
     refresh: "M13 3.5v3.5h-3.5M13 7a5 5 0 1 0 -1.5 4.5",

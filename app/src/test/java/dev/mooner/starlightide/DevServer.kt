@@ -12,6 +12,8 @@ import dev.mooner.starlightworkspace.ApiInfo
 import dev.mooner.starlightworkspace.ArgInfo
 import dev.mooner.starlightworkspace.DefaultWorkspace
 import dev.mooner.starlightworkspace.EventInfo
+import dev.mooner.starlightworkspace.LogBuffer
+import dev.mooner.starlightworkspace.LogEntry
 import dev.mooner.starlightworkspace.testing.FakeHost
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -77,13 +79,28 @@ class DevServer {
                 else -> bot.log("unknown command: ${message.text}", "DEBUG")
             }
         }
-        repeat(6) { bot.log("message handled in ${12 + it * 3}ms", if (it == 4) "WARN" else "INFO") }
+        repeat(40) { bot.log("message handled in ${12 + it * 3}ms", if (it % 9 == 4) "WARN" else "INFO") }
         // Compiled but off; notice-board below isn't compiled, which in StarLight means off.
         host.addProject("weather").also { it.compile(); it.setEnabled(false) }
         host.addProject("notice-board")
 
         val webDir = File("build/generated/webResources")
-        val workspace = DefaultWorkspace(host)
+        val appLogs = LogBuffer()
+        val workspace = DefaultWorkspace(host, appLogs)
+        val now = System.currentTimeMillis()
+        listOf(
+            LogEntry("INFO", "PluginLoader", "Loaded 5 plugins", now - 60_000),
+            LogEntry("INFO", "Ktor/CIOApplicationEngine", "Responding at http://0.0.0.0:8766", now - 50_000),
+            LogEntry("WARN", "NotificationListener", "Notification access was revoked once and restored", now - 40_000),
+            LogEntry("INFO", "McpPlugin", "MCP server started: http://192.168.0.2:8765/mcp", now - 30_000),
+        ).forEach(appLogs::add)
+        Thread {
+            var n = 0
+            while (true) {
+                Thread.sleep(7_000)
+                appLogs.add(LogEntry("DEBUG", "ProjectManager", "Heartbeat ${++n}: 3 projects, 1 running", System.currentTimeMillis()))
+            }
+        }.apply { isDaemon = true }.start()
         val engine = HttpServerEngine(IdeHandler(
             workspace = { workspace },
             settings = { IdeSettings(tokenHash = sha256Hex("dev-token"), requireToken = true) },
