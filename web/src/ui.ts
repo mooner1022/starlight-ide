@@ -82,3 +82,72 @@ export function dialog(title: string, fields: Field[], confirmLabel = "확인", 
 export async function confirmDialog(title: string, description: string, confirmLabel: string): Promise<boolean> {
     return (await dialog(title, [], confirmLabel, description)) !== null;
 }
+
+interface PickItem {
+    value: string;
+    label: string;
+    detail?: string;
+    icon?: Node;
+}
+
+/** A command-palette style picker with filtering; resolves with the chosen value, or null. */
+export function pick(items: PickItem[], placeholder: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const input = h("input", { class: "palette-input", placeholder, spellcheck: false, autocomplete: "off" });
+        const list = h("div", { class: "palette-list", role: "listbox" });
+        let shown: PickItem[] = [];
+        let index = 0;
+
+        const render = () => {
+            const query = input.value.trim().toLowerCase();
+            shown = items
+                .map((item) => ({ item, score: score(item.label.toLowerCase(), query) }))
+                .filter((x) => x.score >= 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 50)
+                .map((x) => x.item);
+            index = Math.min(index, Math.max(shown.length - 1, 0));
+            list.replaceChildren(...shown.map((item, i) => h("div", {
+                class: "palette-item" + (i === index ? " selected" : ""), role: "option", "aria-selected": i === index,
+                onMousedown: (e: Event) => { e.preventDefault(); close(item.value); },
+                onMousemove: () => { if (index !== i) { index = i; render(); } },
+            }, item.icon ?? null, h("span", { class: "palette-label" }, item.label), item.detail ? h("span", { class: "palette-detail" }, item.detail) : null)));
+            if (shown.length === 0) list.append(h("div", { class: "palette-empty" }, "일치하는 항목이 없어요"));
+            list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
+        };
+        const close = (value: string | null) => {
+            overlay.remove();
+            resolve(value);
+        };
+        input.addEventListener("input", () => { index = 0; render(); });
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowDown") { index = Math.min(index + 1, shown.length - 1); render(); e.preventDefault(); }
+            else if (e.key === "ArrowUp") { index = Math.max(index - 1, 0); render(); e.preventDefault(); }
+            else if (e.key === "Enter") { if (shown[index]) close(shown[index].value); e.preventDefault(); }
+            else if (e.key === "Escape") { close(null); e.preventDefault(); }
+        });
+        const overlay = h("div", { class: "overlay palette-overlay", onMousedown: (e: Event) => { if (e.target === overlay) close(null); } },
+            h("div", { class: "palette", role: "dialog", "aria-modal": "true" },
+                h("div", { class: "palette-search" }, icon("search", 15), input), list));
+        document.body.appendChild(overlay);
+        render();
+        input.focus();
+    });
+}
+
+/** Subsequence match, preferring matches at word starts and in the file name; -1 if it doesn't match. */
+function score(text: string, query: string): number {
+    if (!query) return 0;
+    let total = 0;
+    let at = 0;
+    const nameStart = text.lastIndexOf("/") + 1;
+    for (const c of query) {
+        const found = text.indexOf(c, at);
+        if (found < 0) return -1;
+        total += found === at ? 3 : 1;
+        if (found >= nameStart) total += 2;
+        if (found === 0 || "/.-_ ".includes(text[found - 1])) total += 2;
+        at = found + 1;
+    }
+    return total - text.length * 0.01;
+}

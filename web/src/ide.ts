@@ -1,11 +1,11 @@
 // The IDE: projects and files on the left, the editor in the middle, panels below and on the right.
 
 import { api, ApiError, type Change, type CompileResult, type EventInfo, type FileEntry, type Language, type Log, type Project } from "./api";
-import { button, clear, h, icon, iconButton, logo } from "./dom";
+import { button, clear, h, icon, iconButton, logo, sparkle } from "./dom";
 import { editorFont, monaco, setMonacoTheme, setStarlightTypes } from "./monaco";
 import { BottomPanel, SidePanel } from "./panels";
 import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
-import { confirmDialog, dialog, toast } from "./ui";
+import { confirmDialog, dialog, pick, toast } from "./ui";
 
 /** A file with a model in the editor. */
 interface Doc {
@@ -53,6 +53,7 @@ export class Ide {
     private readonly emptyState = h("div", { class: "empty-state" });
     private readonly banner = h("div", { class: "banner", hidden: true });
     private readonly header = h("div", { class: "header-project" });
+    private readonly compileButton = h("button", { type: "button", class: "compile-button", title: "컴파일 (Ctrl+Shift+B)" });
     private readonly status = {
         connection: h("span", { class: "status-item connection" }),
         project: h("span", { class: "status-item" }),
@@ -123,30 +124,36 @@ export class Ide {
     // ------------------------------------------------------------------ layout
 
     private build(): void {
-        const sidebar = h("aside", { class: "sidebar" },
+        const sidebar = h("aside", { class: "sidebar card" },
             h("section", { class: "sidebar-section projects-section" },
-                h("header", { class: "section-header" }, h("span", {}, "프로젝트"),
+                h("header", { class: "section-header" }, sparkle(11), h("span", {}, "프로젝트"),
                     iconButton("plus", "새 프로젝트", () => void this.createProject()),
                     iconButton("refresh", "새로고침", () => void this.refreshProjects())),
                 this.projectList),
             h("section", { class: "sidebar-section files-section" },
-                h("header", { class: "section-header" }, h("span", {}, "파일"),
+                h("header", { class: "section-header" }, sparkle(11), h("span", {}, "파일"),
                     iconButton("plus", "새 파일", () => void this.createFile()),
                     iconButton("refresh", "새로고침", () => void this.refreshFiles())),
                 this.fileTree));
 
         const center = h("main", { class: "center" },
-            this.tabBar,
-            this.banner,
-            h("div", { class: "editor-area" }, this.editorHost, this.emptyState),
+            h("section", { class: "card editor-card" },
+                this.tabBar,
+                this.banner,
+                h("div", { class: "editor-area" }, this.editorHost, this.emptyState)),
             this.bottom.root);
 
+        this.compileButton.addEventListener("click", () => void this.compile());
+        this.setCompiling(false);
         const header = h("header", { class: "topbar" },
-            h("div", { class: "brand" }, logo(18), h("span", {}, "StarLight"), h("span", { class: "brand-sub" }, "IDE")),
+            h("div", { class: "brand" }, logo(22), h("span", { class: "brand-name" }, "STARLIGHT"), h("span", { class: "brand-sub" }, "IDE")),
             this.header,
+            h("button", { type: "button", class: "finder", onClick: () => void this.quickOpen() },
+                icon("search", 14), h("span", {}, "파일로 이동"), h("kbd", {}, "Ctrl P")),
             h("div", { class: "topbar-actions" },
                 iconButton("save", "저장 (Ctrl+S)", () => void this.save()),
-                h("button", { type: "button", class: "primary compile-button", title: "컴파일 (Ctrl+Shift+B)", onClick: () => void this.compile() }, icon("play"), h("span", {}, "컴파일")),
+                this.compileButton,
+                h("span", { class: "divider" }),
                 iconButton(this.theme === "dark" ? "sun" : "moon", "테마 바꾸기", () => this.toggleTheme(), { class: "theme-button" }),
                 iconButton("logout", "로그아웃", () => this.onLogout())));
 
@@ -159,6 +166,16 @@ export class Ide {
         this.root.append(header, sidebar, splitter("sidebar"), center, splitter("side"), this.side.root, statusBar);
         restoreSizes(this.root);
         this.setConnection(false);
+        // Monaco measures characters once; web fonts arrive later.
+        void document.fonts.ready.then(() => monaco.editor.remeasureFonts());
+    }
+
+    private setCompiling(compiling: boolean): void {
+        this.compileButton.disabled = compiling;
+        this.compileButton.classList.toggle("busy", compiling);
+        this.compileButton.replaceChildren(
+            compiling ? h("span", { class: "spinner" }) : icon("play", 14),
+            h("span", {}, compiling ? "컴파일 중" : "컴파일"));
     }
 
     private bindKeys(): void {
@@ -256,9 +273,11 @@ export class Ide {
                 onClick: () => void this.selectProject(project.id),
                 onKeydown: (e: KeyboardEvent) => { if (e.key === "Enter") void this.selectProject(project.id); },
             },
-                h("span", { class: "project-dot " + (project.enabled ? (project.compiled ? "on" : "pending") : "off") }),
-                h("span", { class: "project-name" }, project.name),
-                h("span", { class: "project-lang" }, shortLanguage(project.languageId))));
+                avatar(project.name),
+                h("span", { class: "project-text" },
+                    h("span", { class: "project-name" }, project.name),
+                    h("span", { class: "project-meta" }, shortLanguage(project.languageId), " · ", stateLabel(project))),
+                h("span", { class: "project-dot " + stateClass(project), title: stateLabel(project) })));
         }
         if (this.projects.length === 0) this.projectList.appendChild(h("li", { class: "muted-row" }, "프로젝트가 없어요"));
     }
@@ -271,10 +290,12 @@ export class Ide {
         const toggle = h("input", { type: "checkbox", class: "switch", checked: project.enabled, "aria-label": "프로젝트 켜기" });
         toggle.addEventListener("change", () => void this.setEnabled(toggle.checked));
         this.header.append(
-            h("span", { class: "header-name" }, project.name),
-            h("span", { class: "chip" }, shortLanguage(project.languageId)),
-            h("span", { class: "chip " + (project.compiled ? "chip-ok" : "chip-warn") }, project.compiled ? "컴파일됨" : "컴파일 안 됨"),
-            h("label", { class: "switch-label" }, toggle, h("span", {}, project.enabled ? "켜짐" : "꺼짐")));
+            h("div", { class: "project-chip" },
+                avatar(project.name),
+                h("span", { class: "header-name" }, project.name),
+                h("span", { class: "chip" }, shortLanguage(project.languageId)),
+                h("span", { class: "chip state-" + stateClass(project) }, h("span", { class: "project-dot " + stateClass(project) }), stateLabel(project))),
+            h("label", { class: "switch-label", title: "프로젝트 켜기/끄기" }, toggle, h("span", {}, project.enabled ? "켜짐" : "꺼짐")));
     }
 
     // ------------------------------------------------------------------ files
@@ -324,7 +345,7 @@ export class Ide {
                     onKeydown: (e: KeyboardEvent) => { if (e.key === "Enter") (e.currentTarget as HTMLElement).click(); },
                 },
                     entry.isDirectory ? icon(isOpen ? "chevronDown" : "chevronRight", 14) : h("span", { class: "file-indent" }),
-                    icon(entry.isDirectory ? (isOpen ? "folderOpen" : "folder") : "file", 15),
+                    entry.isDirectory ? icon(isOpen ? "folderOpen" : "folder", 15) : fileIcon(entry.path),
                     h("span", { class: "file-name" + (entry.path === this.project?.mainScript ? " main-script" : "") }, name),
                     doc && this.isDirty(doc) ? h("span", { class: "dirty-dot", title: "저장 안 됨" }) : null,
                     entry.isDirectory ? null : h("span", { class: "row-actions" },
@@ -440,7 +461,7 @@ export class Ide {
                 onClick: () => this.activate(path),
                 onAuxclick: (e: MouseEvent) => { if (e.button === 1) this.closeTab(path); },
             },
-                icon("file", 14),
+                fileIcon(path),
                 h("span", { class: "tab-name" }, name),
                 doc && this.isDirty(doc)
                     ? h("button", { type: "button", class: "tab-close dirty", title: "닫기", onClick: (e: Event) => { e.stopPropagation(); this.closeTab(path); } })
@@ -452,11 +473,12 @@ export class Ide {
     private renderEmptyState(): void {
         clear(this.emptyState);
         this.emptyState.append(
-            logo(48),
-            h("h2", {}, this.project ? "파일을 여세요" : "프로젝트를 고르세요"),
-            h("dl", { class: "shortcuts" },
-                ...[["Ctrl+P", "파일 열기"], ["Ctrl+S", "저장"], ["Ctrl+Shift+B", "컴파일"], ["Ctrl+Shift+F", "검색"], ["F1", "명령 팔레트"]]
-                    .flatMap(([key, label]) => [h("dt", {}, h("kbd", {}, key)), h("dd", {}, label)])));
+            h("div", { class: "empty-logo" }, logo(44)),
+            h("h2", {}, this.project ? "열린 파일이 없어요" : "프로젝트를 고르세요"),
+            h("p", {}, this.project ? "왼쪽에서 파일을 고르거나 바로 찾아 여세요." : "왼쪽 목록에서 프로젝트를 고르거나 새로 만드세요."),
+            h("div", { class: "shortcut-grid" },
+                ...[["Ctrl P", "파일로 이동"], ["Ctrl S", "저장"], ["Ctrl ⇧ B", "컴파일"], ["Ctrl ⇧ F", "프로젝트 검색"], ["F1", "명령 팔레트"], ["Ctrl G", "줄로 이동"]]
+                    .map(([key, label]) => h("div", { class: "shortcut" }, h("span", {}, label), h("kbd", {}, key)))));
     }
 
     private renderBanner(): void {
@@ -670,11 +692,13 @@ export class Ide {
     private async quickOpen(): Promise<void> {
         const files = this.files.filter((f) => !f.isDirectory);
         if (files.length === 0) return;
-        const values = await dialog("파일 열기", [{
-            name: "path", label: "파일", type: "select", value: this.active ?? undefined,
-            options: files.map((f) => ({ value: f.path, label: f.path })),
-        }], "열기");
-        if (values?.path) await this.openFile(String(values.path));
+        const path = await pick(files.map((f) => ({
+            value: f.path,
+            label: f.path,
+            detail: f.path === this.project?.mainScript ? "메인 스크립트" : formatSize(f.size),
+            icon: fileIcon(f.path),
+        })), "열 파일 이름");
+        if (path) await this.openFile(path);
     }
 
     // ------------------------------------------------------------------ compiling
@@ -685,6 +709,7 @@ export class Ide {
         if (!await this.saveAll()) return null;
         this.bottom.show("output");
         this.bottom.compileStarted(project.name);
+        this.setCompiling(true);
         try {
             const result = await api.compile(project.id);
             this.showCompileResult(result);
@@ -693,6 +718,8 @@ export class Ide {
         } catch (e) {
             this.bottom.compileFailed(errorMessage(e));
             return null;
+        } finally {
+            this.setCompiling(false);
         }
     }
 
@@ -903,6 +930,32 @@ function languageOf(path: string): string {
 
 function languageLabel(path: string): string {
     return { javascript: "JavaScript", typescript: "TypeScript", json: "JSON", markdown: "Markdown", plaintext: "텍스트" }[languageOf(path)] ?? "";
+}
+
+/** A colored square with the project's initial; the hue comes from the name, so it stays the same. */
+function avatar(name: string): HTMLElement {
+    let hash = 0;
+    for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+    return h("span", { class: "avatar", style: `--hue: ${hash % 360}`, "aria-hidden": "true" }, [...name][0]?.toUpperCase() ?? "?");
+}
+
+function stateClass(project: Project): string {
+    return project.enabled ? (project.compiled ? "on" : "pending") : "off";
+}
+
+function stateLabel(project: Project): string {
+    return project.enabled ? (project.compiled ? "실행 중" : "컴파일 필요") : "꺼짐";
+}
+
+function fileIcon(path: string): SVGSVGElement {
+    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+    const svg = icon("file", 15);
+    svg.classList.add("file-icon", "ft-" + ({ js: "js", mjs: "js", cjs: "js", ts: "ts", json: "json", md: "md" }[ext] ?? "other"));
+    return svg;
+}
+
+function formatSize(bytes: number): string {
+    return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
 function shortLanguage(id: string): string {

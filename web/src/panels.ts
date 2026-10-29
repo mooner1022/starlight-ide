@@ -1,7 +1,7 @@
 // The panel below the editor (output, logs, search, problems) and the one on the right (debug room, events).
 
 import { api, type Change, type CompileResult, type Log } from "./api";
-import { clear, formatTime, h, icon, iconButton } from "./dom";
+import { clear, formatTime, h, icon, iconButton, logo, sparkle } from "./dom";
 import type { Ide } from "./ide";
 import { errorMessage } from "./ide";
 import { monaco } from "./monaco";
@@ -13,7 +13,7 @@ const LOG_LEVELS = ["VERBOSE", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"];
 const MAX_LOG_ROWS = 2000;
 
 export class BottomPanel {
-    readonly root = h("section", { class: "bottom-panel" });
+    readonly root = h("section", { class: "bottom-panel card" });
     private tab: BottomTab = "output";
     private readonly tabs = h("div", { class: "panel-tabs", role: "tablist" });
     private readonly actions = h("div", { class: "panel-actions" });
@@ -58,7 +58,7 @@ export class BottomPanel {
             this.tabs.appendChild(h("button", {
                 type: "button", class: "panel-tab" + (key === tab ? " active" : ""), role: "tab", "aria-selected": key === tab,
                 onClick: () => this.show(key),
-            }, icon(iconName, 14), label));
+            }, key === tab ? sparkle(10) : icon(iconName, 14), label));
         }
         for (const [key, body] of Object.entries(this.bodies)) body.hidden = key !== tab;
         clear(this.actions);
@@ -182,7 +182,7 @@ export class BottomPanel {
 }
 
 export class SidePanel {
-    readonly root = h("aside", { class: "side-panel" });
+    readonly root = h("aside", { class: "side-panel card" });
     private tab: "debug" | "events" = "debug";
     private readonly tabs = h("div", { class: "panel-tabs", role: "tablist" });
     private readonly chat = h("div", { class: "chat-log", "aria-live": "polite" });
@@ -192,7 +192,10 @@ export class SidePanel {
     private readonly group = h("input", { type: "checkbox", checked: localStorage.getItem("ide.group") === "true" });
     private readonly debugBody: HTMLElement;
     private readonly eventsBody = h("div", { class: "events-body" });
+    private readonly roomTitle = h("div", { class: "room-title" });
     private sending = false;
+    /** Who sent the last message, to group consecutive ones. */
+    private lastAuthor: string | null = null;
 
     constructor(private readonly ide: Ide) {
         this.input.addEventListener("keydown", (e) => {
@@ -205,7 +208,10 @@ export class SidePanel {
             element.addEventListener("change", () => localStorage.setItem(key, element.value));
         this.group.addEventListener("change", () => localStorage.setItem("ide.group", String(this.group.checked)));
 
+        this.room.addEventListener("input", () => this.renderRoomTitle());
+        this.group.addEventListener("change", () => this.renderRoomTitle());
         this.debugBody = h("div", { class: "debug-body" },
+            h("div", { class: "room-bar" }, h("span", { class: "room-avatar" }, logo(16)), this.roomTitle),
             this.chat,
             h("details", { class: "chat-options" },
                 h("summary", {}, "보내는 사람·방"),
@@ -213,10 +219,17 @@ export class SidePanel {
                 h("label", { class: "field compact" }, h("span", {}, "방 이름"), this.room),
                 h("label", { class: "check-row" }, this.group, h("span", {}, "단체방"))),
             h("div", { class: "chat-compose" }, this.input,
-                h("button", { type: "button", class: "primary send-button", title: "보내기", onClick: () => void this.send() }, icon("send"))));
+                h("button", { type: "button", class: "send-button", title: "보내기 (Enter)", "aria-label": "보내기", onClick: () => void this.send() }, icon("send"))));
         this.root.append(h("div", { class: "panel-header" }, this.tabs), this.debugBody, this.eventsBody);
         this.show("debug");
         this.renderChatPlaceholder();
+        this.renderRoomTitle();
+    }
+
+    private renderRoomTitle(): void {
+        this.roomTitle.replaceChildren(
+            h("span", { class: "room-name" }, this.room.value || "디버그룸"),
+            h("span", { class: "room-sub" }, `${this.ide.project?.name ?? "프로젝트 없음"} · ${this.group.checked ? "단체방" : "1:1 채팅"}`));
     }
 
     show(tab: "debug" | "events"): void {
@@ -226,7 +239,7 @@ export class SidePanel {
             this.tabs.appendChild(h("button", {
                 type: "button", class: "panel-tab" + (key === tab ? " active" : ""), role: "tab", "aria-selected": key === tab,
                 onClick: () => this.show(key),
-            }, icon(iconName, 14), label));
+            }, key === tab ? sparkle(10) : icon(iconName, 14), label));
         }
         this.debugBody.hidden = tab !== "debug";
         this.eventsBody.hidden = tab !== "events";
@@ -235,7 +248,9 @@ export class SidePanel {
 
     onProjectChanged(): void {
         clear(this.chat);
+        this.lastAuthor = null;
         this.renderChatPlaceholder();
+        this.renderRoomTitle();
         if (this.tab === "events") this.renderEvents();
     }
 
@@ -244,8 +259,14 @@ export class SidePanel {
     private renderChatPlaceholder(): void {
         if (this.chat.childElementCount > 0) return;
         this.chat.append(h("div", { class: "chat-placeholder" },
-            icon("chat", 28),
-            h("p", {}, "디버그룸처럼 봇에게 메시지를 보내고 답장을 확인해요."),
+            h("div", { class: "placeholder-icon" }, icon("chat", 22)),
+            h("p", { class: "placeholder-title" }, "봇과 대화해 보세요"),
+            h("p", {}, "앱의 디버그룸처럼 메시지를 보내고 답장을 바로 확인해요."),
+            h("div", { class: "suggestions" },
+                ...["!핑", "안녕", "!도움말"].map((text) => h("button", {
+                    type: "button", class: "suggestion",
+                    onClick: () => { this.input.value = text; void this.send(); },
+                }, text))),
             h("p", { class: "muted" }, "프로젝트가 컴파일되어 있고 메시지 이벤트를 받아야 해요.")));
     }
 
@@ -257,7 +278,9 @@ export class SidePanel {
         this.chat.querySelector(".chat-placeholder")?.remove();
         this.input.value = "";
         this.bubble("user", text);
-        const typing = h("div", { class: "bubble bot typing" }, h("span"), h("span"), h("span"));
+        const typing = h("div", { class: "msg msg-bot" },
+            h("span", { class: "msg-avatar" }, logo(14)),
+            h("div", { class: "msg-body" }, h("div", { class: "bubble typing" }, h("span"), h("span"), h("span"))));
         this.chat.append(typing);
         this.scrollChat();
         try {
@@ -270,6 +293,7 @@ export class SidePanel {
             reply.replies.forEach((r) => this.bubble("bot", r));
             if (reply.error) this.bubble("error", reply.error);
             if (reply.replies.length === 0 && !reply.error) this.note("답장이 없어요");
+            if (reply.logs.length) this.note(`로그 ${reply.logs.length}줄 · 아래 로그 패널에서 볼 수 있어요`);
         } catch (e) {
             typing.remove();
             this.bubble("error", errorMessage(e));
@@ -289,13 +313,25 @@ export class SidePanel {
         this.scrollChat();
     }
 
-    private bubble(kind: string, text: string, author?: string): void {
-        this.chat.append(h("div", { class: `bubble ${kind}` },
-            author ? h("span", { class: "bubble-author" }, author) : null,
-            h("span", { class: "bubble-text" }, text)));
+    /** A message; consecutive ones of the same author share the avatar and name. */
+    private bubble(kind: "user" | "user remote" | "bot" | "error", text: string): void {
+        const author = kind === "error" ? "bot" : kind;
+        const first = this.lastAuthor !== author;
+        this.lastAuthor = author;
+        const time = h("span", { class: "msg-time" }, new Date().toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" }));
+        const bubble = h("div", { class: "bubble" + (kind === "error" ? " error" : "") }, text);
+        if (kind.startsWith("user")) {
+            this.chat.append(h("div", { class: "msg msg-user" + (kind === "user remote" ? " remote" : "") + (first ? " first" : "") }, time, bubble));
+            return;
+        }
+        this.chat.append(h("div", { class: "msg msg-bot" + (first ? " first" : "") },
+            first ? h("span", { class: "msg-avatar" }, logo(14)) : h("span", { class: "msg-avatar-space" }),
+            h("div", { class: "msg-body" }, first ? h("span", { class: "msg-name" }, this.ide.project?.name ?? "봇") : null,
+                h("div", { class: "msg-line" }, bubble, time))));
     }
 
     private note(text: string): void {
+        this.lastAuthor = null;
         this.chat.append(h("div", { class: "chat-note" }, text));
     }
 
@@ -317,12 +353,13 @@ export class SidePanel {
                 try {
                     const result = await api.updateEvents(project.id, toggle.checked ? [event.id] : [], toggle.checked ? [] : [event.id]);
                     project.allowedEvents = result.allowed;
+                    toggle.closest(".event-row")?.classList.toggle("allowed", toggle.checked);
                 } catch (e) {
                     toggle.checked = !toggle.checked;
                     toast(errorMessage(e), "error");
                 }
             });
-            this.eventsBody.append(h("div", { class: "event-row" },
+            this.eventsBody.append(h("div", { class: "event-row" + (allowed.has(event.id) ? " allowed" : "") },
                 h("div", { class: "event-text" },
                     h("div", { class: "event-name" }, event.name),
                     h("button", { type: "button", class: "event-function", title: "에디터에 넣기", onClick: () => this.ide.insertEventFunction(event) },
@@ -336,7 +373,7 @@ export class SidePanel {
 function logRow(log: Log): HTMLElement {
     return h("div", { class: `log-row log-${log.type.toLowerCase()}`, "data-level": log.type },
         h("span", { class: "log-time" }, formatTime(log.millis)),
-        h("span", { class: "log-level" }, log.type.slice(0, 4)),
+        h("span", { class: "log-level" }, log.type === "VERBOSE" ? "VERB" : log.type === "CRITICAL" ? "CRIT" : log.type),
         h("span", { class: "log-tag" }, log.tag),
         h("span", { class: "log-message" }, log.message));
 }

@@ -75,15 +75,36 @@ export function icon(name: keyof typeof ICONS | string, size = 16): SVGSVGElemen
     return svg;
 }
 
-/** The StarLight star used as the logo. */
+/** StarLight's logo: four notched arms of two petals each, as in the app. */
 export function logo(size = 20): SVGSVGElement {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("viewBox", "-12 -12 24 24");
     svg.setAttribute("width", String(size));
     svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
     svg.classList.add("logo");
+    for (let arm = 0; arm < 4; arm++) {
+        // Each arm is a pair of parallelograms with a notch at the tip, like the app's mark.
+        for (const side of [-1, 1]) {
+            const petal = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            petal.setAttribute("d", `M ${0.55 * side} -1.3 L ${4.2 * side} -4.6 L ${4.2 * side} -11.2 L ${0.55 * side} -7.9 Z`);
+            petal.setAttribute("transform", `rotate(${arm * 90})`);
+            svg.appendChild(petal);
+        }
+    }
+    return svg;
+}
+
+/** The ✦ sparkle the app puts before titles and on chosen items. */
+export function sparkle(size = 12): SVGSVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("sparkle");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", "M12 1.5c.6 5.6 4.9 9.9 10.5 10.5-5.6.6-9.9 4.9-10.5 10.5C11.4 16.9 7.1 12.6 1.5 12 7.1 11.4 11.4 7.1 12 1.5z");
+    path.setAttribute("d", "M8 0c.5 4.3 3.7 7.5 8 8-4.3.5-7.5 3.7-8 8-.5-4.3-3.7-7.5-8-8 4.3-.5 7.5-3.7 8-8z");
     svg.appendChild(path);
     return svg;
 }
@@ -93,7 +114,7 @@ export function button(label: string | Node, onClick: () => void, props: Props =
 }
 
 export function iconButton(name: string, title: string, onClick: () => void, props: Props = {}): HTMLButtonElement {
-    return h("button", { type: "button", class: "icon-button " + (props.class ?? ""), title, "aria-label": title, ...props, onClick }, icon(name));
+    return h("button", { type: "button", title, "aria-label": title, ...props, class: "icon-button " + (props.class ?? ""), onClick }, icon(name));
 }
 
 export function formatTime(millis: number): string {

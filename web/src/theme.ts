@@ -4,7 +4,12 @@
 export type ThemeName = "dark" | "light";
 
 interface Palette {
-    /** Page background, behind the panels. */
+    /** The night sky behind the floating panels. */
+    canvas: string;
+    /** Glows on the canvas. */
+    glowA: string;
+    glowB: string;
+    /** Panel background. */
     bg: string;
     /** Sidebars and panels. */
     surface: string;
@@ -14,10 +19,13 @@ interface Palette {
     surface3: string;
     editor: string;
     border: string;
+    borderStrong: string;
     text: string;
     muted: string;
     faint: string;
     accent: string;
+    /** Second stop of accent gradients. */
+    accent2: string;
     accentText: string;
     /** StarLight's star, used sparingly: the logo, the cursor, the active tab. */
     star: string;
@@ -41,69 +49,80 @@ interface Palette {
     };
 }
 
+// StarLight's own look: warm charcoal, sand beige, white type.
 const dark: Palette = {
-    bg: "#0c0e14",
-    surface: "#12151e",
-    surface2: "#191d29",
-    surface3: "#222838",
-    editor: "#0f121a",
-    border: "#232938",
-    text: "#d6dbe7",
-    muted: "#8d95a8",
-    faint: "#5a6175",
-    accent: "#8aa4ff",
-    accentText: "#0c0e14",
-    star: "#f5c66b",
-    success: "#8fd18a",
-    warning: "#f0b86e",
-    error: "#f7768e",
-    info: "#7fd1e6",
-    selection: "#8aa4ff33",
-    lineHighlight: "#ffffff08",
-    shadow: "#00000080",
+    canvas: "#0a0909",
+    glowA: "#5a4d44",
+    glowB: "#2c2733",
+    bg: "#151314",
+    surface: "#171516",
+    surface2: "#211e1f",
+    surface3: "#2b2829",
+    editor: "#131112",
+    border: "#262223",
+    borderStrong: "#3a3431",
+    text: "#f3efe9",
+    muted: "#aaa29a",
+    faint: "#6e6762",
+    accent: "#dcc19b",
+    accent2: "#c7a77c",
+    accentText: "#2a221b",
+    star: "#dcc19b",
+    success: "#a9cf95",
+    warning: "#e7b877",
+    error: "#ec8c80",
+    info: "#a7c7d8",
+    selection: "#dcc19b30",
+    lineHighlight: "#ffffff06",
+    shadow: "#00000099",
     syntax: {
-        keyword: "#c79bf2",
-        string: "#a6d68a",
-        number: "#f5a97f",
-        comment: "#5f6780",
-        type: "#7fd1e6",
-        func: "#8aa4ff",
-        regexp: "#f5c66b",
-        delimiter: "#8d95a8",
-        constant: "#f5a97f",
+        keyword: "#d9a7c7",
+        string: "#b9d396",
+        number: "#e9b77c",
+        comment: "#6e6762",
+        type: "#a7c7d8",
+        func: "#dcc19b",
+        regexp: "#e9b77c",
+        delimiter: "#9c948d",
+        constant: "#e9b77c",
     },
 };
 
 const light: Palette = {
-    bg: "#eef0f5",
-    surface: "#f6f7fa",
-    surface2: "#eceef4",
-    surface3: "#e0e4ee",
-    editor: "#ffffff",
-    border: "#dde1ea",
-    text: "#1e2230",
-    muted: "#5b6275",
-    faint: "#9097a8",
-    accent: "#4a63e7",
-    accentText: "#ffffff",
-    star: "#c98a12",
-    success: "#2f8f46",
-    warning: "#b26b00",
-    error: "#d13b5a",
-    info: "#0f7f99",
-    selection: "#4a63e72e",
-    lineHighlight: "#1e22300a",
-    shadow: "#1e223026",
+    canvas: "#efebe4",
+    glowA: "#d9c7ad",
+    glowB: "#d8d0dc",
+    bg: "#fbf9f5",
+    surface: "#fdfbf8",
+    surface2: "#f3efe8",
+    surface3: "#e9e3d9",
+    editor: "#fffdf9",
+    border: "#e6e0d6",
+    borderStrong: "#d5ccbe",
+    text: "#2a231d",
+    muted: "#6d645b",
+    faint: "#a39a8f",
+    accent: "#9c7442",
+    accent2: "#86612f",
+    accentText: "#fffdf9",
+    star: "#b8894c",
+    success: "#4c8a3a",
+    warning: "#a8670d",
+    error: "#c24a3d",
+    info: "#3f7690",
+    selection: "#9c744226",
+    lineHighlight: "#2a231d08",
+    shadow: "#2a231d22",
     syntax: {
-        keyword: "#8a3fd1",
-        string: "#3f8f3f",
-        number: "#c4561d",
-        comment: "#8a90a2",
-        type: "#0f7f99",
-        func: "#3550d6",
-        regexp: "#b07a00",
-        delimiter: "#5b6275",
-        constant: "#c4561d",
+        keyword: "#9a4a7d",
+        string: "#4f7d2e",
+        number: "#b0601c",
+        comment: "#a39a8f",
+        type: "#3f7690",
+        func: "#86612f",
+        regexp: "#b0601c",
+        delimiter: "#6d645b",
+        constant: "#b0601c",
     },
 };
 
@@ -266,5 +285,5 @@ export function preferredTheme(): ThemeName {
 }
 
 function kebab(key: string): string {
-    return key.replace(/[A-Z0-9]/g, (c) => "-" + c.toLowerCase());
+    return key.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
 }

@@ -1,6 +1,6 @@
 import "./styles.css";
 import { api, ApiError, setUnauthorizedHandler } from "./api";
-import { h, logo } from "./dom";
+import { h, logo, sparkle } from "./dom";
 import { applyCssVariables, preferredTheme, type ThemeName } from "./theme";
 
 const app = document.getElementById("app")!;
@@ -23,14 +23,18 @@ async function boot(): Promise<void> {
 function showLogin(version: string): void {
     const input = h("input", { type: "password", placeholder: "접근 토큰", autocomplete: "current-password", required: true, "aria-label": "접근 토큰" });
     const error = h("p", { class: "login-error", role: "alert" });
-    const submit = h("button", { type: "submit", class: "primary" }, "로그인");
+    const submit = h("button", { type: "submit", class: "primary" }, "시작하기");
     const form = h("form", { class: "login-card" },
-        h("div", { class: "login-brand" }, logo(36), h("div", {}, h("h1", {}, "StarLight IDE"), h("p", {}, "PC에서 StarLight 프로젝트를 편집하고 실행해요"))),
-        h("label", { class: "field" }, h("span", {}, "접근 토큰"), input),
+        h("div", { class: "login-brand" },
+            h("div", { class: "login-logo" }, logo(58)),
+            h("span", { class: "login-overline" }, "IDE", sparkle(16)),
+            h("h1", {}, "StarLight"),
+            h("p", {}, "PC에서 편집하고, 컴파일하고,", h("br"), "바로 대화해 보는 봇 개발"),
+            h("span", { class: "login-version" }, `v${version}`, sparkle(11))),
+        input,
         error,
         submit,
-        h("p", { class: "login-hint" }, "토큰은 StarLight 앱의 플러그인 설정 › 웹 IDE › 보안에서 정해요."),
-        h("p", { class: "login-version" }, `v${version}`));
+        h("p", { class: "login-hint" }, "토큰은 StarLight 앱의 플러그인 설정 › 웹 IDE › 보안에서 정해요."));
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
         submit.disabled = true;
@@ -45,8 +49,28 @@ function showLogin(version: string): void {
             submit.disabled = false;
         }
     });
-    app.replaceChildren(h("div", { class: "login" }, form));
+    app.replaceChildren(h("div", { class: "login" }, sky(), form));
     input.focus();
+}
+
+/** A field of stars behind the login, twinkling unless the user prefers reduced motion. */
+function sky(): HTMLElement {
+    const field = h("div", { class: "sky", "aria-hidden": "true" }, h("span", { class: "shooting-star" }));
+    for (let i = 0; i < 7; i++) {
+        const mark = sparkle(6 + Math.random() * 8);
+        mark.style.left = `${Math.random() * 100}%`;
+        mark.style.top = `${Math.random() * 100}%`;
+        field.appendChild(mark);
+    }
+    for (let i = 0; i < 70; i++) {
+        const size = Math.random() < 0.12 ? 2.5 : Math.random() < 0.5 ? 1.5 : 1;
+        field.appendChild(h("span", {
+            class: "star",
+            style: `left:${Math.random() * 100}%;top:${Math.random() * 100}%;width:${size}px;height:${size}px;` +
+                `animation-delay:${(Math.random() * 6).toFixed(2)}s;animation-duration:${(3 + Math.random() * 4).toFixed(2)}s`,
+        }));
+    }
+    return field;
 }
 
 boot().catch((e) => {
