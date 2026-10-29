@@ -77,6 +77,7 @@ def buildWeb = tasks.register('buildWeb', NpmTask) {
     args = ['run', 'build']
     environment = ['WEB_OUT_DIR': webResources.get().dir("web").asFile.path]
     inputs.dir(rootProject.file("web/src"))
+    inputs.dir(rootProject.file("web/public"))
     inputs.files(rootProject.files("web/index.html", "web/package.json", "web/package-lock.json", "web/vite.config.ts", "web/tsconfig.json", "web/scripts"))
     outputs.dir(webResources)
 }
