@@ -3,7 +3,7 @@
   "name":"Web IDE",
   "category":"devtools",
   "main_class":"dev.mooner.starlightide.StarlightIdePlugin",
-  "version":"0.1.2",
+  "version":"0.2.0",
   "api_version":"1.0.0",
   "assetRevision":1,
   "dependency":["ktor@3.6.0", "workspace@1.0.0"],
