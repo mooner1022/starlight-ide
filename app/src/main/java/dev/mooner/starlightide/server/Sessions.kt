@@ -36,6 +36,10 @@ class Sessions(
             sessions -= id
     }
 
+    /** How many browsers are logged in. */
+    fun count(): Int =
+        sessions.values.count { lastUsed -> now() - lastUsed <= ttlMillis }
+
     /** Logs everyone out, as when the token changes. */
     fun clear() {
         sessions.clear()

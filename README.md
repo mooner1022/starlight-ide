@@ -3,13 +3,15 @@
 PC 브라우저에서 기기의 StarLight 프로젝트를 편집하고, 컴파일하고, 디버그룸으로 바로 시험해 볼 수 있는 웹 IDE 플러그인입니다.
 에디터는 VS Code의 Monaco이고, StarLight API 자동완성을 지원합니다.
 
+**StarLight nightly(PluginCore 1.0.0) 이상이 필요합니다.** 정식 앱(0.3.4b)에서는 불러오지 않습니다.
+
 **필수 의존성:** [Ktor](https://github.com/mooner1022/starlight-ktor)(`ktor@3.6.0`), [Workspace](https://github.com/mooner1022/starlight-workspace)(`workspace@1.0.0`).
 같은 Workspace를 쓰는 MCP 서버와 변경 사항을 공유하므로, AI가 MCP로 고친 파일이 열려 있는 탭에 바로 반영됩니다.
 
 ## 연결하기
 
 1. 플러그인 설정 > 보안에서 **접근 토큰**을 정합니다(8자 이상). 토큰이 없으면 로그인할 수 없습니다.
-2. 제어 > 상태를 눌러 주소(`http://<기기 IP>:8766`)를 복사합니다.
+2. 제어 > 서버 상태를 눌러 주소(`http://<기기 IP>:8766`)를 복사합니다.
 3. PC 브라우저에서 열고 토큰으로 로그인합니다.
 
 ## 기능
@@ -70,4 +72,4 @@ IDE_DEV_SERVER=8799 ./gradlew :app:testReleaseUnitTest --tests '*DevServer*'
 ```
 
 `app/libs/workspace-api-<버전>.jar`는 Workspace 저장소의 `./gradlew :app:apiJar` 결과물입니다.
-`app/libs`의 `PluginCore-release.aar`, `ConfigDSL-release.aar`은 StarLight 저장소에서 빌드한 것입니다.
+`app/libs`의 `PluginCore-release.aar`, `ConfigDSL-release.aar`은 StarLight 저장소 nightly 브랜치에서 빌드한 것입니다(PluginCore 1.0.0).

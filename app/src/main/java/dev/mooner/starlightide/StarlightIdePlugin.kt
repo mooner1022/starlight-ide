@@ -1,14 +1,20 @@
 package dev.mooner.starlightide
 
 import android.text.InputType
+import dev.mooner.configdsl.ConfigActionScope
 import dev.mooner.configdsl.ConfigStructure
 import dev.mooner.configdsl.Icon
 import dev.mooner.configdsl.config
+import dev.mooner.configdsl.options.ButtonStyle
+import dev.mooner.configdsl.options.InfoState
+import dev.mooner.configdsl.options.OptionStatus
 import dev.mooner.configdsl.options.button
+import dev.mooner.configdsl.options.choice
+import dev.mooner.configdsl.options.info
 import dev.mooner.configdsl.options.password
-import dev.mooner.configdsl.options.spinner
 import dev.mooner.configdsl.options.string
 import dev.mooner.configdsl.options.toggle
+import dev.mooner.configdsl.utils.PeekType
 import dev.mooner.starlight.plugincore.config.data.ConfigData
 import dev.mooner.starlight.plugincore.logger.LogData
 import dev.mooner.starlight.plugincore.logger.LoggerFactory
@@ -26,8 +32,15 @@ import dev.mooner.starlightide.utils.copyServerUrl
 import dev.mooner.starlightide.utils.sha256Hex
 import dev.mooner.starlightide.utils.tr
 import dev.mooner.starlightworkspace.Workspaces
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.time.Duration.Companion.seconds
 
 private val LOG = LoggerFactory.logger("IdePlugin")
 
@@ -42,14 +55,19 @@ class StarlightIdePlugin : StarlightPlugin() {
             contextClassLoader = StarlightIdePlugin::class.java.classLoader
         }
     }
+    private val serverDispatcher = serverExecutor.asCoroutineDispatcher()
 
     /** Accessed on [serverExecutor] only. */
     private var engine: HttpServerEngine? = null
 
     private val sessions = Sessions()
 
-    @Volatile
-    private var settings = IdeSettings()
+    private val settingsFlow = MutableStateFlow(IdeSettings())
+    private var settings: IdeSettings
+        get() = settingsFlow.value
+        set(value) {
+            settingsFlow.value = value
+        }
     @Volatile
     private var host: String = ANY_HOST
     @Volatile
@@ -102,7 +120,7 @@ class StarlightIdePlugin : StarlightPlugin() {
     private fun updateConfig(config: ConfigData) {
         with(config.category(CATEGORY_GENERAL)) {
             port = getString(CONF_PORT)?.toIntOrNull()?.takeIf(::isValidPort) ?: IdeRuntime.DEFAULT_PORT
-            host = if (getInt(CONF_BIND, BIND_ALL) == BIND_LOCAL) LOCALHOST else ANY_HOST
+            host = if (bindKey(getString(CONF_BIND)) == BIND_LOCAL) LOCALHOST else ANY_HOST
             autoStart = getBoolean(CONF_AUTO_START, true)
         }
         val security = config.category(CATEGORY_SECURITY)
@@ -170,6 +188,46 @@ class StarlightIdePlugin : StarlightPlugin() {
         startServer()
     }
 
+    /** Runs [block] on [serverExecutor], then tells how the IDE ended up. */
+    private suspend fun ConfigActionScope.changeServer(block: () -> Unit) {
+        withContext(serverDispatcher) { block() }
+        when (val state = IdeRuntime.state.value) {
+            is ServerState.Running -> peek(tr("Web IDE is running", "웹 IDE가 작동 중이에요"), PeekType.SUCCESS)
+            is ServerState.Failed  -> peek(state.reason, PeekType.ERROR)
+            else                   ->
+                if (isUsable) peek(tr("Web IDE stopped", "웹 IDE를 중지했어요"))
+                else peek(tr("Update the Workspace plugin first.", "먼저 Workspace 플러그인을 업데이트하세요."), PeekType.ERROR)
+        }
+    }
+
+    /** The status row: whether the IDE runs, where, and whether anyone can log in. */
+    private fun statusFlow(): Flow<InfoState> =
+        combine(IdeRuntime.state, settingsFlow) { state, settings ->
+            when (state) {
+                is ServerState.Running ->
+                    if (settings.requireToken && settings.tokenHash == null) InfoState(tr("No token", "토큰 없음"), OptionStatus.WARNING)
+                    else InfoState(tr("Running", "작동 중"), OptionStatus.OK)
+                ServerState.Starting   -> InfoState(null, OptionStatus.LOADING)
+                ServerState.Stopped    -> InfoState(tr("Stopped", "중지됨"))
+                is ServerState.Failed  -> InfoState(tr("Failed", "오류"), OptionStatus.ERROR)
+            }
+        }
+
+    private fun statusDescriptionFlow(): Flow<String?> =
+        combine(IdeRuntime.state, settingsFlow) { state, settings ->
+            when (state) {
+                is ServerState.Running ->
+                    if (settings.requireToken && settings.tokenHash == null)
+                        tr("Access token is not set: nobody can log in.", "접근 토큰이 설정되지 않아 로그인할 수 없어요.")
+                    else
+                        tr("Open on your PC:", "PC 브라우저에서 접속:") + "\n" + IdeRuntime.serverInfo().urls.joinToString("\n") +
+                            "\n" + tr("Tap to copy the address.", "눌러서 주소를 복사해요.")
+                ServerState.Starting   -> tr("Starting...", "시작 중...")
+                ServerState.Stopped    -> null
+                is ServerState.Failed  -> state.reason
+            }
+        }
+
     // ------------------------------------------------------------------ config
 
     override fun getConfigStructure(): ConfigStructure = config {
@@ -191,14 +249,12 @@ class StarlightIdePlugin : StarlightPlugin() {
                     icon = Icon.LINK
                     iconTintColor = color { COLOR_ICON }
                 }
-                spinner {
+                choice {
                     id = CONF_BIND
                     title = tr("Accept connections from", "접속 허용 범위")
-                    items = listOf(
-                        tr("All networks ($ANY_HOST)", "모든 네트워크 ($ANY_HOST)"),
-                        tr("This device only ($LOCALHOST)", "이 기기에서만 ($LOCALHOST)"),
-                    )
-                    defaultIndex = BIND_ALL
+                    option(BIND_ALL, tr("All networks ($ANY_HOST)", "모든 네트워크 ($ANY_HOST)"))
+                    option(BIND_LOCAL, tr("This device only ($LOCALHOST)", "이 기기에서만 ($LOCALHOST)"))
+                    defaultKey = BIND_ALL
                     icon = Icon.CLOUD
                     iconTintColor = color { COLOR_ICON }
                 }
@@ -217,47 +273,41 @@ class StarlightIdePlugin : StarlightPlugin() {
             title = tr("Control", "제어")
             textColor = color { COLOR_SUB_TITLE }
             items {
-                button {
-                    val state = IdeRuntime.state.value
-                    id = "state_indicator"
-                    title = when (state) {
-                        is ServerState.Running -> tr("Open ${IdeRuntime.serverInfo().urls.joinToString()} on your PC", "PC에서 ${IdeRuntime.serverInfo().urls.joinToString()} 접속")
-                        ServerState.Starting   -> tr("Starting...", "시작 중...")
-                        ServerState.Stopped    -> tr("Stopped", "중지됨")
-                        is ServerState.Failed  -> tr("Failed: ${state.reason}", "오류: ${state.reason}")
-                    }
-                    description = if (state is ServerState.Running) tr("Tap to copy the address.", "눌러서 주소를 복사합니다.") else null
+                info {
+                    id = "status"
+                    title = tr("Web IDE", "웹 IDE")
                     icon = Icon.POWER
-                    iconTintColor = color {
-                        when (state) {
-                            is ServerState.Running -> "#4ADE80"
-                            ServerState.Starting   -> "#F2B05E"
-                            else                   -> "#FF6188"
-                        }
-                    }
+                    bind(statusFlow())
+                    bindDescription(statusDescriptionFlow())
                     setOnClickListener { view -> copyServerUrl(view.context) }
                 }
                 button {
-                    val action = if (isRunning) tr("Stop", "중지") else tr("Start", "시작")
                     id = "toggle_server"
-                    title = tr("$action IDE", "IDE $action")
+                    title = if (isRunning) tr("Stop IDE", "IDE 중지") else tr("Start IDE", "IDE 시작")
+                    bindTitle(IdeRuntime.state.map { state ->
+                        if (state is ServerState.Running) tr("Stop IDE", "IDE 중지") else tr("Start IDE", "IDE 시작")
+                    })
                     icon = Icon.POWER
-                    iconTintColor = color { "#FF6188" }
-                    setOnClickListener { _ ->
-                        LOG.info(LogData.FLAG_NOTIFY) { tr("$action IDE...", "IDE $action 중...") }
-                        serverExecutor.execute {
-                            if (engine != null) stopServer() else startServer()
-                        }
+                    action {
+                        changeServer { if (engine != null) stopServer() else startServer() }
                     }
+                }
+                info {
+                    id = "sessions"
+                    title = tr("Logged-in browsers", "로그인한 브라우저")
+                    icon = Icon.ACCOUNT_BOX
+                    value = sessions.count().toString()
+                    bindValue(every = 5.seconds) { sessions.count().toString() }
                 }
                 button {
                     id = "logout_all"
                     title = tr("Log out every browser", "모든 브라우저 로그아웃")
                     icon = Icon.EXIT_TO_APP
-                    iconTintColor = color { "#FF6188" }
-                    setOnClickListener { _ ->
+                    style = ButtonStyle.DANGER
+                    confirm(tr("Every browser has to log in again with the token.", "모든 브라우저가 토큰으로 다시 로그인해야 해요."))
+                    action {
                         sessions.clear()
-                        LOG.info(LogData.FLAG_NOTIFY) { tr("Logged out every browser", "모든 브라우저를 로그아웃했어요.") }
+                        peek(tr("Logged out every browser", "모든 브라우저를 로그아웃했어요"), PeekType.SUCCESS)
                     }
                 }
             }
@@ -286,7 +336,7 @@ class StarlightIdePlugin : StarlightPlugin() {
                     require = { value -> if (value.length >= MIN_TOKEN_LENGTH) null else tr("At least $MIN_TOKEN_LENGTH characters", "${MIN_TOKEN_LENGTH}자 이상 입력하세요") }
                     icon = Icon.KEY
                     iconTintColor = color { COLOR_ICON }
-                    dependency = CONF_REQUIRE_TOKEN
+                    visibleWhen(CONF_REQUIRE_TOKEN, true)
                 }
             }
         }
@@ -303,8 +353,8 @@ class StarlightIdePlugin : StarlightPlugin() {
         const val CONF_REQUIRE_TOKEN = "require_token"
         const val CONF_TOKEN         = "access_token"
 
-        const val BIND_ALL   = 0
-        const val BIND_LOCAL = 1
+        const val BIND_ALL   = "all"
+        const val BIND_LOCAL = "local"
 
         // Ports below 1024 need root on Android.
         const val MIN_PORT = 1024
@@ -319,5 +369,9 @@ class StarlightIdePlugin : StarlightPlugin() {
 
         fun isValidPort(port: Int): Boolean =
             port in MIN_PORT..MAX_PORT
+
+        /** The saved choice; before 0.2.0 it was the spinner's index. */
+        fun bindKey(saved: String?): String =
+            if (saved == BIND_LOCAL || saved == "1") BIND_LOCAL else BIND_ALL
     }
 }
